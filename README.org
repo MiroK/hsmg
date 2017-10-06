@@ -1,0 +1,17 @@
+* Installation of Hs multigrid
+  Execute `source setup.rc` to have hsmg module available in this shell.
+  FEniCS stack (which include numpy, scipy) is currently the only dependency.
+
+** Tests
+   Execute `pytest` in the current directory.
+
+** TODO
+   Immediate:
+   - restriction_matrix
+   - macro_dofmap
+   - Dirichlet dofs
+   - the rest of multigrid
+
+   Future:
+   - coarsening of line meshes which are not straight
+  
