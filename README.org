@@ -7,11 +7,27 @@
 
 ** TODO
    Immediate:
-   - restriction_matrix
-   - macro_dofmap
-   - Dirichlet dofs
-   - the rest of multigrid
-
+   - restriction_matrix        [OK^1]
+   - Dirichlet dofs            [OK^2]
+   - macro_dofmap              [OK^3]
+   - the rest of multigrid     []
+     
    Future:
    - coarsening of line meshes which are not straight
+
+** FIXME
+   0. Throughout the code there is a silent assumption of only running
+   in serial. I don't prioritize running in parallel.
+
+   1. For now restriction matrix is limited to scalar Lagrange elements.
+   Moreover fine and coarse spaces are assumed to use the same finite element.
+   Discontinous Lagrange is excluded. These are convenience assumptions
+   and can be lifted.
+
+   2. The function only finds the Dirichlet dofs. In particular, the values
+   for the rhs are not returned (assumed 0). This is easy fix if needed.
+
+   3. Works only for 'line' meshes as I don't understand the macro element
+   definition well enough to generalize it.
+ 
   

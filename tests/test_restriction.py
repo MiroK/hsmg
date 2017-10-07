@@ -31,8 +31,7 @@ def check(seed, elm, f, nlevels=6):
         R.mult(x, y)
 
         Rf.axpy(-1, y)
-
-        assert Rf.norm('linf') < 1E-14
+        assert Rf.norm('linf') < 1E-14, Rf.norm('linf')
 
     # Scipy
     Rs = map(to_csr_matrix, Rs)

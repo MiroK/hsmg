@@ -1,5 +1,5 @@
 from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
-from dolfin import FunctionSpace, Cell, Point
+from dolfin import FunctionSpace, Cell, Point, warning
 from dolfin import FacetFunction, Constant, DirichletBC
 from itertools import izip
 from petsc4py import PETSc
@@ -37,7 +37,7 @@ def restriction_mat((Vh, VH)):
             c = tree.compute_first_entity_collision(Point(*x))
 
             if c >= limit:
-                warninig('Dof at %r not found', x)
+                warning('Dof at %r not found', x)
                 continue
 
             cell = Cell(mesh, c)
