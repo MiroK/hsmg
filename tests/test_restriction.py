@@ -1,6 +1,8 @@
 from dolfin import FunctionSpace, interpolate, Expression, PETScMatrix
 from dolfin import UnitSquareMesh, FiniteElement, UnitIntervalMesh, near
-from hsmg.restriction import restriction_matrix
+from dolfin import DomainBoundary, CompiledSubDomain
+
+from hsmg.restriction import restriction_matrix, Dirichlet_dofs
 from hsmg.hierarchy import by_refining
 from hsmg.utils import to_csr_matrix
 import numpy as np
@@ -81,3 +83,17 @@ def test_2d_P2():
     f = Expression('x[0]*x[0]+2*x[1]-x[1]*x[1]', degree=2)
 
     assert check(mesh, elm, f, 6)
+
+
+def test_DirichletDofs():
+    mesh = UnitIntervalMesh(10)
+    hierarchy = by_refining(mesh, 4)
+    V = FunctionSpace(mesh, 'CG', 1)
+    bdry = DomainBoundary()
+
+    bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
+    assert all(len(dofs_level) == 2 for dofs_level in bdry_dofs)
+
+    bdry = CompiledSubDomain('near(x[0], 2)')
+    bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
+    assert all(len(dofs_level) == 0 for dofs_level in bdry_dofs)

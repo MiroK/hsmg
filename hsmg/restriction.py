@@ -1,5 +1,6 @@
 from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
 from dolfin import FunctionSpace, Cell, Point
+from dolfin import FacetFunction, Constant, DirichletBC
 from itertools import izip
 from petsc4py import PETSc
 import numpy as np
@@ -69,3 +70,21 @@ def restriction_matrix(fine_space, mesh_hierarchy, convert=to_csr_matrix):
     
     return R
 
+
+def Dirichlet_dofs(V, bdry, mesh_hierarchy):
+    '''
+    Gather dofs corrensponding to Dirichlet boundary conditions on 
+    each level of the hierarchy. List of sets.
+    '''
+    elm = V.ufl_element()
+    
+    bdry_dofs = []    
+    for mesh in mesh_hierarchy:
+        V = FunctionSpace(mesh, elm)
+        boundary = FacetFunction('size_t', mesh, 0)
+        bdry.mark(boundary, 1)
+
+        bc = DirichletBC(V, Constant(0), boundary, 1)
+        bdry_dofs.append(set(bc.get_boundary_values().keys()))
+        # FIXME: are values of interest
+    return bdry_dofs
