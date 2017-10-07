@@ -1,11 +1,14 @@
 from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import FacetFunction, TrialFunction, TestFunction
+
 from block.object_pool import vec_pool
 from block.block_base import block_base
+
 from functools import partial
+
+import macro_element
 import hs_multigrid
-import restriction
 import hierarchy
 import utils
 
@@ -54,8 +57,8 @@ class HsNormMGBase(block_base):
 
         # The function which given macro element size produces for each
         # level a map dof -> macro dofs
-        macro_dofmap = partial(restriction.macro_dofmap(fine_space=V,
-                                                        hierarchy=mesh_hierarchy))
+        macro_dofmap = partial(macro_element.macro_dofmap(space=V,
+                                                          mesh=mesh_hierarchy))
 
         if bdry is not None:
             # For each level keep track of boundary dofs

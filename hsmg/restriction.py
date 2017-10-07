@@ -1,6 +1,9 @@
 from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
+
 from dolfin import FunctionSpace, Cell, Point, warning
 from dolfin import FacetFunction, Constant, DirichletBC
+from dolfin import Mesh
+
 from itertools import izip
 from petsc4py import PETSc
 import numpy as np
