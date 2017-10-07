@@ -17,17 +17,17 @@
 
 ** FIXME
    0. Throughout the code there is a silent assumption of only running
-   in serial. I don't prioritize running in parallel.
+      in serial. I don't prioritize running in parallel.
 
    1. For now restriction matrix is limited to scalar Lagrange elements.
-   Moreover fine and coarse spaces are assumed to use the same finite element.
-   Discontinous Lagrange is excluded. These are convenience assumptions
-   and can be lifted.
+      Moreover fine and coarse spaces are assumed to use the same finite element.
+      Discontinous Lagrange is excluded. These are convenience assumptions
+      and can be lifted.
 
-   2. The function only finds the Dirichlet dofs. In particular, the values
-   for the rhs are not returned (assumed 0). This is easy fix if needed.
+   2. The function only finds the Dirichlet dofs. In particular, the values 
+      for the rhs are not returned (assumed 0). This is easy fix if needed.
 
    3. Works only for 'line' meshes as I don't understand the macro element
-   definition well enough to generalize it.
+      definition well enough to generalize it.
  
   
