@@ -1,4 +1,4 @@
-from dolfin import Mesh, cells, vertices
+from dolfin import Mesh, cells, vertices, FunctionSpace
 import numpy as np
 import operator
 
@@ -8,11 +8,12 @@ def macro_dofmap(size, space, mesh):
     For each dof create a set of degrees of freedom which are located
     on macro element of size around the dof.
     '''
+    assert size >= 1
     # Recurse on hierarchy
     if not isinstance(mesh, Mesh):
         hierarchy = mesh
         return [macro_dofmap(size,
-                             FuncionSpace(mesh, space.ufl_element()),
+                             FunctionSpace(mesh, space.ufl_element()),
                              mesh) for mesh in hierarchy]
 
     # The base case of single mesh

@@ -28,9 +28,11 @@ def check(seed, elm, f, nlevels=6):
         Rf = interpolate(f, Vcoarse).vector()
 
         y = Rf.copy();
+        y.zero()
         R.mult(x, y)
 
         Rf.axpy(-1, y)
+
         assert Rf.norm('linf') < 1E-14, Rf.norm('linf')
 
     # Scipy
@@ -69,19 +71,19 @@ def test_1d_P2():
 
     
 def test_2d_P1():
-    mesh = UnitIntervalMesh(10)
+    mesh = UnitSquareMesh(4, 4)
     elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
     f = Expression('x[0]+x[1]', degree=1)
 
-    assert check(mesh, elm, f, 6)
+    assert check(mesh, elm, f, 4)
 
     
 def test_2d_P2():
-    mesh = UnitIntervalMesh(10)
+    mesh = UnitSquareMesh(4, 4)
     elm = FiniteElement('Lagrange', mesh.ufl_cell(), 2)
     f = Expression('x[0]*x[0]+2*x[1]-x[1]*x[1]', degree=2)
 
-    assert check(mesh, elm, f, 6)
+    assert check(mesh, elm, f, 4)
 
 
 def test_DirichletDofs():

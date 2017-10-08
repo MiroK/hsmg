@@ -6,6 +6,6 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
     # Dummy for testing
     class Foo(object):
         def __call__(self, x):
-            return A*x
+            return A.dot(x)
 
     return Foo()

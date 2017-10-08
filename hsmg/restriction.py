@@ -53,7 +53,7 @@ def restriction_mat((Vh, VH)):
 
             col_values = np.array(basis_values, dtype='double')
             col_indices = np.array(hdofs, dtype='int32')
-            
+
             # Insert (one eval per row)
             mat.setValues([Hdof], col_indices, col_values, PETSc.InsertMode.INSERT_VALUES)
     return mat

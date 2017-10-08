@@ -1,6 +1,7 @@
 from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import FacetFunction, TrialFunction, TestFunction
+from dolfin import Vector
 
 from block.object_pool import vec_pool
 from block.block_base import block_base
@@ -9,6 +10,7 @@ from functools import partial
 
 import macro_element
 import hs_multigrid
+import restriction
 import hierarchy
 import utils
 
@@ -36,7 +38,7 @@ class HsNormMGBase(block_base):
         assert len(V) == 1
         V = V.pop()
         # and m
-        assert V == set(arg.function_space() for arg in m.arguments())
+        assert V in set(arg.function_space() for arg in m.arguments())
         # Limit to scalar valued functions
         assert V.dolfin_element().value_rank() == 0
 
@@ -47,8 +49,9 @@ class HsNormMGBase(block_base):
         assert between(s, (-1, 1.))
 
         # 0 is the finest_mesh
+        nlevels = mg_params['nlevels']
         if mesh_hierarchy is None:
-            mesh_hierarchy = hierarchy.by_coarsening(mesh)
+            mesh_hierarchy = hierarchy.by_coarsening(V.mesh(), nlevels)
 
         # If el is the finite element of V we build here operators
         # taking FunctionSpace(mesh_hierarchy[i], el) to
@@ -57,8 +60,10 @@ class HsNormMGBase(block_base):
 
         # The function which given macro element size produces for each
         # level a map dof -> macro dofs
-        macro_dofmap = partial(macro_element.macro_dofmap(space=V,
-                                                          mesh=mesh_hierarchy))
+        macro_dofmaps = partial(macro_element.macro_dofmap,
+                               space=V,
+                               mesh=mesh_hierarchy)
+        # e.g. macro_dofmaps(1)  # of size 1
 
         if bdry is not None:
             # For each level keep track of boundary dofs
@@ -78,8 +83,9 @@ class HsNormMGBase(block_base):
         A, _ = assemble_system(a, L, bcs_V)
         M, _ = assemble_system(m, L, bcs_V)
 
+        A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmap)
+        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------

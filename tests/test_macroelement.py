@@ -1,3 +1,4 @@
+from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap
 from hsmg.restriction import Dirichlet_dofs
 from dolfin import UnitIntervalMesh, FunctionSpace, DomainBoundary
@@ -61,3 +62,13 @@ def test_P3_3():
             count4 += len(v) == 4
     assert count5 == 5
     assert count4 == 2
+
+
+def test_hierarchy():
+    mesh = UnitIntervalMesh(5)
+    hierarchy = by_refining(mesh, 4)
+    V = FunctionSpace(hierarchy[0], 'CG', 1)
+    ds = macro_dofmap(1, V, hierarchy)
+
+    for mesh, d in zip(hierarchy, ds):
+        assert FunctionSpace(mesh, 'CG', 1).dim() == len(d)
