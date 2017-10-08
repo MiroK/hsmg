@@ -23,6 +23,25 @@ def transpose_matrix(A):
     return PETScMatrix(At)
 
 
+def from_csr_matrix(A, out=PETScMatrix):
+    '''Create PETSc.Mat/PETScMatrix from csr_matrix'''
+    B = PETSc.Mat().createAIJ(size=A.shape,
+                              csr=(A.indptr, A.indices, A.data))
+    if isinstance(B, out):
+        return B
+    else:
+        return out(B)
+
+
+def from_np_array(A, out=PETScMatrix):
+    '''Create PETSc.Mat/PETScMatrix fom numpy array'''
+    B = PETSc.Mat().createDense(size=A.shape, array=A)
+    if isinstance(B, out):
+        return B
+    else:
+        return out(B)
+
+    
 @contextmanager
 def petsc_serial_matrix(test_space, trial_space):
     '''PETsc.Mat from trial_space to test_space to be filled in...'''
