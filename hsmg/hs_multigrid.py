@@ -23,7 +23,8 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
     # Dummy for testing
     class FracLapMG(object):
         '''Class for MG method''' 
-        def __init__(self, A, M, R, bdry_dofs, macro_dofmap, ns=1, s=1.0, size=1, eta=1.0):
+        def __init__(self, A, M, R, macro_dofmap, size=1, bdry_dofs=None, **kwargs):
+        #def __init__(self, A, M, R, bdry_dofs, macro_dofmap, ns=1, s=1.0, size=1, eta=1.0):
             '''Constructor
             INPUT:
                 A: Stiffness matrix in finest level.
@@ -40,18 +41,26 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
             self.Ms = [M,]
             self.R = R
             self.J = len(R) + 1
-            self.s = s    # Fractionality
-            assert between(s, (0.,1.))
+            self.kwargs = kwargs
+            if "s" not in self.kwargs.keys():
+                self.s = 1.
+            else:
+                assert between(s, (0.,1.))
+            
+            if "ns" not in self.kwargs.keys():
+                self.ns = 1
+            else:
+                assert isinstance(self.ns, int)
+                assert self.ns >= 1
+
+            if "eta" not in self.kwargs.keys():
+                self.eta = 1.
+            else:
+                assert eta > 0.
+            # Set patch-to-DOFs maps for each level:
+            assert size >= 1
             self.macro_dms = macro_dofmap(size)
             assert len(self.macro_dms) == self.J
-
-            self.eta = eta # Scaling coefficient
-            assert eta > 0.
-
-            self.ns = ns # Number of smoothings
-            assert isinstance(ns, int)
-            assert ns >= 1
-
             # Set up matrices:
             for Rm in self.R:
                 Af = self.As[-1]
@@ -68,16 +77,25 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
             assert len(self.As) == self.J
             assert len(self.Ms) == self.J
             # Set masks:
-            self.masks = []
-            for i in range(self.J):
-                mask = np.ones( self.As[i].shape[0], dtype=bool)
-                mask[bdry_dofs[i]] = False
-                self.masks.append(mask)
-            assert len(self.masks) == self.J
+            if bdry_dofs is not None:
+                self.masks = []
+                for i in range(self.J):
+                    mask = np.ones( self.As[i].shape[0], dtype=bool)
+                    mask[bdry_dofs[i]] = False
+                    self.masks.append(mask)
+                assert len(self.masks) == self.J
+            else:
+                self.masks = [[]]*self.J
             # Set smoothers:
             self.set_smoothers()
             # Set coarsest level inverse
             self.set_coarsest_inverse()
+
+        def __getattr__(self, key):
+            return self.kwargs[key]
+        
+        def __setattr__(self, key, value):
+            super(FracLapMG, self).__setattr__(key,value)
 
         def set_smoothers(self):
             '''Method for setting Additive Schwarz smoothers.'''
@@ -142,7 +160,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
             #return self.As[0].dot(b)
             return self.multigrid_level(0,b)
 
-    return FracLapMG(A,M,R, bdry_dofs, macro_dofmap)
+    return FracLapMG(A,M,R, macro_dofmap, size=1, bdry_dofs=bdry_dofs)
 
 
 class HSAS(object):
