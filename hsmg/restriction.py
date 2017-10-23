@@ -88,6 +88,7 @@ def Dirichlet_dofs(V, bdry, mesh_hierarchy):
         bdry.mark(boundary, 1)
 
         bc = DirichletBC(V, Constant(0), boundary, 1)
-        bdry_dofs.append(set(bc.get_boundary_values().keys()))
+        bdry_dofs.append( bc.get_boundary_values().keys() )
         # FIXME: are values of interest
+        # NOTE (Trygve): Removed set for easier array slicing.
     return bdry_dofs
