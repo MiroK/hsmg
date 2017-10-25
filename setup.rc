@@ -1,5 +1,8 @@
 export PYTHONPATH=`pwd`:"$PYTHONPATH"
 
 # Where fenicsii lives on my laptop
-export PYTHONPATH="/home/miro3/Documents/Programming/fenics_ii-dev:$PYTHONPATH"
+# export PYTHONPATH="/home/miro3/Documents/Programming/fenics_ii-dev:$PYTHONPATH"
 
+# UiO setup
+export PYTHONPATH="/mn/sarpanitu/eksterne-u1/mirok/Documents/Programming/fenics_ii-dev/:$PYTHONPATH"
+export PYTHONPATH="/mn/sarpanitu/eksterne-u1/mirok/Documents/Programming/cbc.block/:$PYTHONPATH"

@@ -100,6 +100,7 @@ def main(markers, subdomains, beta=1E-10):
 
 if __name__ == '__main__':
     import argparse
+    import numpy as np
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
@@ -130,8 +131,17 @@ if __name__ == '__main__':
         assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
 
         subdomains = CellFunction('size_t', mesh, 0)
-        for cell in cells(mesh):
-            subdomains[cell] = interior.inside(cell.midpoint().array(), False)
+        
+        try:
+            for cell in cells(mesh):
+                subdomains[cell] = interior.inside(cell.midpoint().array(), False)
+        # UiO FEniCS 1.6.0 does not have point array
+        except AttributeError:
+            for cell in cells(mesh):
+                mp = cell.midpoint()
+                x = np.array([mp[i] for i in range(dim)])
+                subdomains[cell] = interior.inside(x, False)
+        
         assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
         
         size, niters = main(markers, subdomains)
