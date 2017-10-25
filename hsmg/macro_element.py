@@ -1,12 +1,12 @@
-from dolfin import Mesh, cells, vertices, FunctionSpace
+from dolfin import Mesh, FunctionSpace
 import numpy as np
 import operator
 
 
 def macro_dofmap(size, space, mesh):
     '''
-    For each dof create a set of degrees of freedom which are located
-    on macro element of size around the dof.
+    For each VERTEX create a set of degrees of freedom which are located
+    on macro element of size around the VERTEX.
     '''
     assert size >= 1
     # Recurse on hierarchy
@@ -16,91 +16,63 @@ def macro_dofmap(size, space, mesh):
                              FunctionSpace(mesh, space.ufl_element()),
                              mesh) for mesh in hierarchy]
 
-    # The base case of single mesh
-    # For now allow only scalar Lagrange elements on a line
-    assert space.ufl_element().family() ==  'Lagrange'
-    assert space.dolfin_element().value_rank() == 0
-    assert mesh.topology().dim() == 1
+    return [np.fromiter(macro_element(space, vertex, size), dtype=int)
+            for vertex in range(mesh.num_vertices())]
 
+
+def macro_element(V, vertex, level):
+    '''
+    Basis functions with supports on a vertex_patch(mesh, vertex, level)
+    '''
+    assert level >= 1
+    patch = vertex_patch(V.mesh(), vertex, level)
+    # Get the neighbors of the patch
+    rim = vertex_patch(V.mesh(), vertex, level+1) - patch
+
+    # All dofs of the patch - those of the rim are what we want
+    dm = V.dofmap()
+    patch_dofs = sum((dm.cell_dofs(c).tolist() for c in patch), [])
+    rim_dofs = sum((dm.cell_dofs(c).tolist() for c in rim), [])
+
+    return set(patch_dofs) - set(rim_dofs)
+
+
+def vertex_patch(mesh, vertex, level):
+    '''
+    A patch of level 1 is formed by cells that share the vertex. Higher 
+    level patch is a union of level-1 patches around vertices of level 1.
+    '''
+    assert level >= 1
+    
     tdim = mesh.topology().dim()
+    mesh.init(0, tdim)
+    v2c = mesh.topology()(0, tdim)
+    mesh.init(tdim, 0)
+    c2v = mesh.topology()(tdim, 0)
     
-    dm = space.dofmap()
-    # dm.cell_dofs() returns all dofs on a cell. Learn which
-    # are interior dofs == those associated with highest top dim
-    interior_idx = dm.tabulate_entity_dofs(tdim, 0)
-    # Exterior is the rest
-    exterior_idx = np.array([i for i in range(dm.num_element_dofs(0))
-                             if i not in interior_idx])
+    patch = set(v2c(vertex))
 
-    # Connecting exterior dof to 2 cell (1d!) that share it requires
-    # notion of dof to vertex map
-    # Local map for the 2 dofs
-    vertex_dofs = np.array([dm.tabulate_entity_dofs(0, 0),
-                            dm.tabulate_entity_dofs(0, 1)])
+    all_nodes = reduce(operator.or_, (set(c2v(c)) for c in patch))
+    seeds = all_nodes - set([vertex])
+    # NOTE, this is of course more elegant with recursion but it becomes
+    # slow quite early
+    while level > 1:
+        # Vertices of the cells in the patch become seed os pathc1
+        new_nodes = set()
+        while seeds:
+            v = seeds.pop()
+            new_patch = vertex_patch(mesh, v, 1)
+            # The patch grows by the new cells
+            for c in new_patch:
+                new_nodes.update(set(c2v(c)))
+            patch.update(new_patch)
+        # Remove from new_nodes the nodes we have seen
+        new_nodes.difference_update(all_nodes)
+        # These guys are seeds for next round
+        seeds.update(new_nodes)
+        # And will never be seeds again
+        all_nodes.update(seeds)
 
-    dof_to_vertex_map = {dof[0]: vertex.index()
-                         for cell in cells(mesh)
-                         for vertex, dof in zip(vertices(cell),
-                                                dm.cell_dofs(cell.index())[vertex_dofs])}
-    
-    # # Cell to cell connectivity defined over vertex
-    mesh.init(0, 1)
-    v2c = mesh.topology()(0, 1)
+        level -= 1
 
-    # Closure computing macro element for an exterior dof
-    def macro_element(dof, size):
-        '''Macro element of size 1 are (typically) the 2 cells that 
-        are connected to a (cell exterior) dof. Larger sizes are obtained
-        by recursing and join the created size 1 elements.
-        '''
-        connected_cells = tuple(sorted(v2c(dof_to_vertex_map[dof])))
-        elm = set([(connected_cells, dof)])
-        # Base case: 2 (1 cell supporting the macroelement of dof)
-        if size == 1: return elm
-
-        # Use the 2 boundary dofs of the elm to grow
-        dofs = reduce(operator.or_,  
-                      (set(dm.cell_dofs(cell)[exterior_idx])-set([dof])
-                       for cell in connected_cells))
-        # Union of size 1 macro elements (on the leaf level)
-        return elm | reduce(operator.or_,
-                            (macro_element(d, size-1) for d in dofs))
-        
-    # Closure for computenig interior dofs of macro elements
-    def interior_dofs(elms):
-        '''Interior degree od freedom for a macro element'''
-        dofs = set()
-        for elm in elms:
-            all_dofs, exterior_dofs = [], []
-            # Fill relative to cell
-            cells, dof = elm
-            for cell in cells:
-                cell_dofs = dm.cell_dofs(cell)
-                exterior_cell_dofs = cell_dofs[exterior_idx]
-                all_dofs.extend(cell_dofs)
-                exterior_dofs.extend(exterior_cell_dofs)
-            # Interior dofs of macro element of size 1 are dofs -
-            # exterior dofs of cell + dof
-            dofs.update(set(all_dofs) - (set(exterior_dofs) - set([dof])))
-            # A union of these make up dofs of larger macro element
-        return dofs
-
-    macro_map = dict()
-    for cell in cells(mesh):
-        cell_dofs = dm.cell_dofs(cell.index())
-        # Interior dof can't be visited twice
-        # FIXME: regardless of size the macro element corresponding to
-        # interior dof consists only of interior dofs of this cell
-        for dof in cell_dofs[interior_idx]:
-            macro_map[dof] = cell_dofs[interior_idx]
-
-        # Macro element of exterior dofs vary with size
-        for dof in cell_dofs[exterior_idx]:
-            # Shared
-            if dof in macro_map: continue
-
-            macro_map[dof] = interior_dofs(macro_element(dof, size))
-            
-    # Collapse, as indices for np indexing
-    macro_map = [np.fromiter(macro_map[dof], dtype=int) for dof in sorted(macro_map.keys())]
-    return macro_map
+    return patch
