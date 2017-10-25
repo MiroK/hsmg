@@ -119,15 +119,25 @@ def Dirichlet_dofs(V, bdry, mesh_hierarchy):
     each level of the hierarchy. List of sets.
     '''
     elm = V.ufl_element()
-    
+    # DG has no dofs assoc. with facets so different definition is required
+    # FIXME: There are some other elements like this in the FEniCS jungle
+    if elm.family() == 'Discontinuous Lagrange':
+        bc_def = lambda V, facet_f: DirichletBC(V, Constant(0), bdry, method='pointwise')
+    else:
+        bc_def = lambda V, facet_f: DirichletBC(V, Constant(0), boundary, 1)
+        
     bdry_dofs = []    
     for mesh in mesh_hierarchy:
         V = FunctionSpace(mesh, elm)
         boundary = FacetFunction('size_t', mesh, 0)
         bdry.mark(boundary, 1)
 
-        bc = DirichletBC(V, Constant(0), boundary, 1)
+        bc = bc_def(V, boundary)
+
+        print bc.get_boundary_values().keys()
+        
         bdry_dofs.append( bc.get_boundary_values().keys() )
         # FIXME: are values of interest
         # NOTE (Trygve): Removed set for easier array slicing.
+
     return bdry_dofs
