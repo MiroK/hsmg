@@ -1,1 +1,5 @@
 export PYTHONPATH=`pwd`:"$PYTHONPATH"
+
+# Where fenicsii lives on my laptop
+export PYTHONPATH="/home/miro3/Documents/Programming/fenics_ii-dev:$PYTHONPATH"
+
