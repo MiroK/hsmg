@@ -62,7 +62,10 @@ def main(mesh):
     # The preconditioner
     BB = block_mat([[P00, 0], [0, P11]])
 
-    AAinv = MinRes(AA, precond=BB, tolerance=1e-10, maxiter=500, show=0)
+    x = AA.create_vec()
+    x.randomize()
+
+    AAinv = MinRes(AA, precond=BB, tolerance=1e-10, maxiter=500, show=2)
 
     # Compute solution
     x = AAinv * bb
@@ -72,7 +75,7 @@ def main(mesh):
     
     return size, niters
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 if __name__ == '__main__':
     import argparse

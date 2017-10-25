@@ -1,54 +1,42 @@
+#  =================
+#  |               |
+#  |     [ i ]     |
+#  |            e  |
+#  =================
+    
+# We solve: Find sigma \in H(div, Omega), tau \in L2(Omega), 
+# p in H0.5(Gamma) such that 
+
+# (kappa^-1 sigma, tau) - (u, div tau) + (p, tau . n) = 0
+# -(div sigma, v)       + (u, v)                      = 0
+# (sigma . n, q)        - beta*(p, q)                 = (g, q)
+#
+# beta term is due to the system being part of timestepping.
+# NOTE: since FEniCS does not have Hdiv multigrid the H(div) preconditioner
+# is taken as LU and setting up will take some time.
+
+
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
-from fenics_ii.utils.convert import block_diagonal_matrix
+from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 
 from block import block_mat, block_assemble
+from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
 from dolfin import *
 
 
-iface = CompiledSubDomain(iface_code)
+def main(markers, subdomains, beta=1E-10):
+    '''Solver'''
+    kappa_e = Constant(1)
+    kappa_i = Constant(1)
 
+    g = Expression('sin(k*pi*(x[0]+x[1]))', k=3, degree=3)
 
-# FIXME: merge mesh from subdomains to fenics_ii-dev
-#        the form for DG0 element in DG0 
-#
-#        babuska
-#        EMI
-#        cleanup mortar to be nice for assembly  
-
-def demo(n, beta=1E-9)
-    '''
-    =================
-    |               |
-    |   [ i ]       |
-    |            e  |
-    =================
-    
-    We solve: Find sigma \in [H(div, Omega)]^2, tau \in L2(Omega), 
-    p in H0.5(Gamma) such that 
-
-    (kappa^-1 sigma, tau) - (u, div tau) + (p, tau . n) = 0
-    -(div sigma, v)       + (u, v)                      = 0
-    (sigma . n, q)                       -beta(p, q)    = (g, q)
-
-    To have the Schur complement dominated by fractional term we let
-    beta very small (correspond to very large time steps in the EMI 
-    problem 
-    '''
-    kappe_e = Constant(1)
-    kappa_i = Constant(1.5)
-    beta = Constant(beta)
-    q = Expression('sin(k*pi*(x[0]+x[1]))', k=3, degree=3)
-
-    # ---------------------
-    
-    omega = UnitSquareMesh(4*n, 4*n)
-    facet_f = FacetFunction('size_t', omega, 0)
-    interface.mark(facet_f, 1)
-
-    gamma = EmbeddedMesh(omega, facet_f, 1, normal=[0.0, 0.0])
+    omega = markers.mesh()
+    dim = omega.geometry().dim()
+    gamma = EmbeddedMesh(omega, markers, 1, normal=[0.5]*dim)
 
     S = FunctionSpace(omega, 'RT', 1)        # sigma
     V = FunctionSpace(omega, 'DG', 0)        # u
@@ -73,116 +61,81 @@ def demo(n, beta=1E-9)
     a11 = inner(u, v)*dX
 
     a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
-    a22 = -Constant(1./beta)*inner(p, q)*dxGamma   
+    a22 = -Constant(beta)*inner(p, q)*dxGamma   
 
     A00, A01, A10, A11, A22 = map(assemble, (a00, a01, a10, a11, a22))
     A02 = trace_assemble(a02, gamma)
     A20 = trace_assemble(a20, gamma)
 
     AA = block_mat([[A00, A01, A02],
-                    [A10, A11, A12],
-                    [A20, A21, A22]])
+                    [A10, A11,   0],
+                    [A20, 0,   A22]])
 
-    bb = block_assemble([inner(Constant((0, 0)), tau)*dx,
+    bb = block_assemble([inner(Constant((0, )*dim), tau)*dx,
                          inner(Constant(0), v)*dx,
                          inner(g, q)*dxGamma])
 
     # Block of Riesz preconditioner
     B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
-    B11 = InvDiag(inner(u, v)*dX)
+    B11 = InvDiag(assemble(inner(u, v)*dX))
+    B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
 
-        # These are terms needed for the alternate formulation in
-        # Broken H1, H1, L2
-        dmyS = Measure('dS', domain=omega, subdomain_data=interface)
-        n = FacetNormal(omega)
+    BB = block_mat([[B00, 0, 0],
+                    [0, B11, 0],
+                    [0, 0, B22]])
+
+    x = AA.create_vec()
+    x.randomize()
+    AAinv = MinRes(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=500, show=2)
+
+    # Compute solution
+    x = AAinv * bb
+
+    niters = len(AAinv.residuals) - 1
+    size = V.dim() + Q.dim()
     
-        # L2
-        # NOTE: Excluding surface term -> problem
-        q00 = inner(sigma, tau)*dX + \
-              inner(dot(sigma('+'), n('+')), dot(tau('+'), n('+')))*dmyS(1)
-        Q00 = assemble(q00)
+    return size, niters
     
-        # H1
-        h = CellSize(omega)
-        h_avg = avg(h)
-        # Avoid the interface, we have jump in u -> can't have global H1
-        # NOTE: including whole skeleton -> problem :)
-        q11 = h_avg**(-1)*dot(jump(v, n), jump(u, n))*dmyS(0) +\
-              h**(-1)*dot(u, v)*ds+\
-              inner(u, v)*dX
-        Q11 = assemble(q11)
+# --------------------------------------------------------------------
 
-        # Simple mass matrix (diagonal with DG0)
-        # NOTE: does not like fractions :)
-        q22 = Constant(1./beta)*inner(p, q)*dx
-        Q22 = assemble(q22)
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
+                         default=2)
+    parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
+                        default=4)
+    args = parser.parse_args()
+
+    dim = args.D
+    Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
+
+    # Interface between interior and exteriorn domains
+    gamma = {2: 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)',
+             3: 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'}
     
-        # Remember
-        self.AA = [[A00, A01, A02],
-                   [A10, A11,   0],
-                   [A20,   0, A22]]
+    gamma = CompiledSubDomain(gamma[dim])
 
-        # For rhs assembly
-        self.dX = dX
-        # Preconditioner
-        self.P = map(assemble, (p00, p11))
-        self.beta = beta
-        # Theoretical value is 0.5 but since Schur is 1./dt*M + H(0.5)
-        # M might dominate the spectrum and then you don't see fractional
-        # term. So I keep it to play with it
-        self.s_value = params.get('s_value', 0.5)
+    # Marking interior domains
+    interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
+                3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
+    interior = CompiledSubDomain(interior[dim])
+    
+    history = []
+    for n in [2**i for i in range(2, 1+args.n)]:
+        mesh = Mesh(*(n, )*dim)
+        markers = FacetFunction('size_t', mesh, 0)
+        gamma.mark(markers, 1)
+        assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
 
-        # Spaces
-        self.W = W
-
-        # Block of no_frac preconditioner
-        self.Q = [Q00, Q11, Q22]
-                
-
-    def __no_frac_preconditioner(self, riesz_map):
-        '''Riesz map for iters. Try to bypass fractional norms'''
-        B00, B11, B22 = self.Q
+        subdomains = CellFunction('size_t', mesh, 0)
+        for cell in cells(mesh):
+            subdomains[cell] = interior.inside(cell.midpoint().array(), False)
+        assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
         
-        if not riesz_map:
-            BB = block_diagonal_matrix([B00, B11, B22])
-        else:
-            BB = block_diagonal_matrix([AMG(B00), AMG(B11), InvDiag(B22)])
-        return BB
+        size, niters = main(markers, subdomains)
 
-    def __frac_preconditioner(self, riesz_map):
-        '''
-        The precondiioner is based on 
-            H1(div) x L2(Omega) x (1./dt*L2(gamma) \cap H^0.5(gamma))
-        '''        
-        B00 = self.P[0]
-        B11 = self.P[1]
-        
-        X = H1_L2_InterpolationNorm(self.W[-1])
-        # X = DG0_H1_L2_InterpolationNorm(self.W[-1])
-        
-        if not riesz_map:
-            Hnorm = X.get_s_norm(s=[(1./self.beta(0), 0), (1.0, self.s_value)],
-                                 as_type=PETScMatrix)
- 
-            BB = block_diagonal_matrix([B00, B11, Hnorm])
-        else:
-            B00 = LU(B00)
-            B11 = InvDiag(B11)
-            Hnorm_inv = X.get_s_norm_inv(s=[(1./self.beta(0), 0), (1.0, self.s_value)],
-                                         as_type=PETScMatrix)
-                                         
-            BB = block_diagonal_matrix([B00, B11, Hnorm_inv])
-return BB
-
-from dolfin import as_backend_type
-import os, sys
-
-
-def krylov_solve(A, b, B, tol):
-    '''Start from random init guess'''
-    x = A.create_vec()
-    [as_backend_type(xi).vec().setRandom() for xi in x]
-    Ainv = MinRes(A, precond=B, show=2, tolerance=tol, initial_guess=x, maxiter=250)
-    x = Ainv*b
-    
-return len(Ainv.residuals) - 1
+        msg = 'Problem size %d, current iters %d, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
+        history.append(niters)
