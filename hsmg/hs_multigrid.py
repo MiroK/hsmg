@@ -139,6 +139,22 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
                     x += S(bj - A.dot(x))
                 return x
 
+        def bpx_level(self, j, bj):
+            '''BPX preconditioner on level j.'''
+            # Coarsest level:
+            if (j >= self.J-1):
+                return self.coarse_solve(bj)
+            else:
+                S = self.smoothers[j]
+                Rm = self.R[j]
+                # Restrict and apply:
+                b_coarse = Rm.dot(bj)
+                x_coarse = self.bpx_level(b_coarse, j+1)
+                # Prolong and add:
+                x_coarse = Rm.T.dot( x_coarse )
+                x_fine = S(bj)
+                return x_fine + x_coarse
+
         def set_coarsest_inverse(self):
             '''Sets the inverse matrix on the coarsest level, once and for all.'''
             mask = self.masks[-1]
@@ -158,7 +174,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
         def __call__(self, b):
             '''Call method.'''
             #return self.As[0].dot(b)
-            return self.multigrid_level(0,b)
+            return self.bpx_level(0,b)
 
     return FracLapMG(A,M,R, macro_dofmap, size=1, bdry_dofs=bdry_dofs)
 

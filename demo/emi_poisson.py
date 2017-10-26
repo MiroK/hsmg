@@ -24,6 +24,8 @@ from block import block_mat, block_assemble
 from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
+from hsmg import Hs0NormMG
+
 from dolfin import *
 
 
@@ -79,6 +81,13 @@ def main(markers, subdomains, beta=1E-10):
     B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
     B11 = InvDiag(assemble(inner(u, v)*dX))
     B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+
+    # Alternative B22 block:
+    mg_params = {'macro_size': 1,
+                 'nlevels': 4,
+                 'eta': 0.4}
+    bdry = DomainBoundary()
+    #B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params)  
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],

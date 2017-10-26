@@ -2,6 +2,7 @@ from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import FacetFunction, TrialFunction, TestFunction
 from dolfin import Vector
+from dolfin import CellSize, avg, dot, jump, dS
 
 from block.object_pool import vec_pool
 from block.block_base import block_base
