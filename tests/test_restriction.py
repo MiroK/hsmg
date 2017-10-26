@@ -84,8 +84,8 @@ def test_2d_P2():
     f = Expression('x[0]*x[0]+2*x[1]-x[1]*x[1]', degree=2)
 
     assert check(mesh, elm, f, 4)
-
-
+        
+        
 def test_DirichletDofs():
     mesh = UnitIntervalMesh(10)
     hierarchy = by_refining(mesh, 4)
@@ -98,3 +98,14 @@ def test_DirichletDofs():
     bdry = CompiledSubDomain('near(x[0], 2)')
     bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
     assert all(len(dofs_level) == 0 for dofs_level in bdry_dofs)
+
+
+def test_DirichletDofsDG():
+    mesh = UnitIntervalMesh(10)
+    hierarchy = by_refining(mesh, 4)
+    V = FunctionSpace(mesh, 'DG', 1)
+    # Have to be a bit less strict 
+    bdry = CompiledSubDomain('near(x[0]*(1-x[0]), 0, 1E-13)')
+
+    bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
+    assert all(len(dofs_level) == 2 for dofs_level in bdry_dofs)

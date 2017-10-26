@@ -109,11 +109,24 @@ class HsNormMG(HsNormMGBase):
     such that for all v \in V
 
         (grad(u), grad(v))*dx + (u, v)*dx = lambda inner(u, v)*dx
- 
+
+    Limit to Lagrange elements
     '''
     def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
         u, v = TrialFunction(V), TestFunction(V)
-        a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+
+        if V.ufl_element().family() == 'Lagrange':
+            a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+        else:
+            assert V.ufl_element().family() == 'Discontinuous Lagrange'
+            # For now keep this with only for piecewise constants
+            assert V.ufl_element().degree() == 0
+            
+            h = CellSize(V.mesh())
+            h_avg = avg(h)
+
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+                
         m = inner(u, v)*dx
 
         HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
@@ -131,9 +144,21 @@ class Hs0NormMG(HsNormMGBase):
     '''
     def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
         assert bdry is not None
-        
+
         u, v = TrialFunction(V), TestFunction(V)
-        a = inner(grad(u), grad(v))*dx
+
+        if V.ufl_element().family() == 'Lagrange':
+            a = inner(grad(u), grad(v))*dx
+        else:
+            assert V.ufl_element().family() == 'Discontinuous Lagrange'
+            # For now keep this with only for piecewise constants
+            assert V.ufl_element().degree() == 0
+            
+            h = CellSize(V.mesh())
+            h_avg = avg(h)
+
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+        
         m = inner(u, v)*dx
 
         HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
