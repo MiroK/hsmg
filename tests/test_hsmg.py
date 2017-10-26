@@ -8,7 +8,8 @@ def test():
     bdry = DomainBoundary()
     s = 0.5
     mg_params = {'macro_size': 1,
-                 'nlevels': 4}
+                 'nlevels': 4,
+                 'eta': 0.4}
 
     MG_Half = Hs0NormMG(V, bdry, s, mg_params)
     
