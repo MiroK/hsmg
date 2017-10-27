@@ -2,7 +2,7 @@ from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import FacetFunction, TrialFunction, TestFunction
 from dolfin import Vector
-from dolfin import CellSize, avg, dot, jump, dS
+from dolfin import CellSize, avg, dot, jump, dS, ds
 
 from block.object_pool import vec_pool
 from block.block_base import block_base
@@ -22,7 +22,7 @@ class HsNormMGBase(block_base):
     in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
     such that for all v \in V a(u, v) = m(u, v).
     '''
-    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None, **kwargs):
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -86,7 +86,7 @@ class HsNormMGBase(block_base):
 
         A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps)
+        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps, **kwargs)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
@@ -130,7 +130,7 @@ class HsNormMG(HsNormMGBase):
                 
         m = inner(u, v)*dx
 
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, mass_term=True)
 
         
 class Hs0NormMG(HsNormMGBase):

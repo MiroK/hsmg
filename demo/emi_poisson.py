@@ -24,7 +24,7 @@ from block import block_mat, block_assemble
 from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
-from hsmg import Hs0NormMG
+from hsmg import Hs0NormMG, HsNormMG
 
 from dolfin import *
 
