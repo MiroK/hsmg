@@ -91,7 +91,7 @@ def main(hierarchy, subdomains, beta=1E-10):
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
     # boundary conditions are set
     bdry = DomainBoundary()
-    B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
+    B22alt = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],
