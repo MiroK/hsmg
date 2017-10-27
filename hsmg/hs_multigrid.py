@@ -7,8 +7,7 @@ from dolfin import between
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
 
-
-def setup(A, M, R, bdry_dofs, macro_dofmap):
+def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
     '''
     Factory function for creating instances of MG methods for fractional Sobolev norms.
     INPUT:
@@ -17,6 +16,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
         R: Restriction matrices
         bdry_dofs: Boundary DOFs on each mesh level in hierarchy.
         macro_dofmap: For each level tabulates DOFs for each subdomain, to be used in smoother.
+        kwargs: Other parameters
     OUTPUT:
         res: Returns instance of MG-method that works on vectors, and can be called via __call__(b).
     '''
@@ -24,7 +24,6 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
     class FracLapMG(object):
         '''Class for MG method''' 
         def __init__(self, A, M, R, macro_dofmap, size=1, bdry_dofs=None, **kwargs):
-        #def __init__(self, A, M, R, bdry_dofs, macro_dofmap, ns=1, s=1.0, size=1, eta=1.0):
             '''Constructor
             INPUT:
                 A: Stiffness matrix in finest level.
@@ -36,6 +35,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
                 ns: Number of smoothings
                 s: (0,1), fractionality
                 eta: Scaling coefficient for smoother.
+                mass_term: Use a 0-order term in interpolation norm
             '''
             self.As = [A,]
             self.Ms = [M,]
@@ -54,9 +54,14 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
                 assert self.ns >= 1
 
             if "eta" not in self.kwargs.keys():
-                self.eta = 1.
+                self.eta = 0.2
             else:
                 assert eta > 0.
+
+            if "mass_term" not in self.kwargs.keys():
+                self.mass_term = False
+            else:
+                assert isinstance(self.mass_term, bool)
             # Set patch-to-DOFs maps for each level:
             assert size >= 1
             self.macro_dms = macro_dofmap(size)
@@ -105,8 +110,11 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
                 Mk = self.Ms[k]
                 dofmap_patches = self.macro_dms[k]
                 mask = self.masks[k]
-                
-                self.smoothers.append( HSAS(Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta) )
+                if self.mass_term:
+                    S = HSAS(Mk+Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta)
+                else:
+                    S = HSAS(Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta)
+                self.smoothers.append( S )
 
             # Checks:
             assert len(self.smoothers) == self.J
@@ -149,7 +157,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
                 Rm = self.R[j]
                 # Restrict and apply:
                 b_coarse = Rm.dot(bj)
-                x_coarse = self.bpx_level(b_coarse, j+1)
+                x_coarse = self.bpx_level(j+1, b_coarse)
                 # Prolong and add:
                 x_coarse = Rm.T.dot( x_coarse )
                 x_fine = S(bj)
@@ -160,7 +168,10 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
             mask = self.masks[-1]
             A = self.As[-1].todense()[np.ix_(mask,mask)]
             M = self.Ms[-1].todense()[np.ix_(mask,mask)]
-            lam, U = la.eigh( A, b=M, type=1)
+            if self.mass_term:
+                lam, U = la.eigh( A+M, b=M, type=1)
+            else:
+                lam, U = la.eigh( A, b=M, type=1)
             U = np.asarray(U)
             self.Hsinv_coarse = np.dot(lam**(-self.s) * U, U.T)
 
@@ -173,10 +184,9 @@ def setup(A, M, R, bdry_dofs, macro_dofmap):
 
         def __call__(self, b):
             '''Call method.'''
-            #return self.As[0].dot(b)
             return self.bpx_level(0,b)
 
-    return FracLapMG(A,M,R, macro_dofmap, size=1, bdry_dofs=bdry_dofs)
+    return FracLapMG(A,M,R, macro_dofmap, size=1, bdry_dofs=bdry_dofs, **kwargs)
 
 
 class HSAS(object):
@@ -194,7 +204,6 @@ class HSAS(object):
         self.mask = mask
         self.eta = eta
         # Go through each patch:
-        print("dms: {}".format(dms))
         B = sp.lil_matrix( A.shape, dtype=float )
         for dofs in dms:
             # Local matrices:
