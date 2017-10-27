@@ -29,17 +29,18 @@ from hsmg import Hs0NormMG
 from dolfin import *
 
 
-def main(markers, subdomains, beta=1E-10):
+def main(hierarchy, subdomains, beta=1E-10):
     '''Solver'''
     kappa_e = Constant(1)
     kappa_i = Constant(1)
 
     g = Expression('sin(k*pi*(x[0]+x[1]))', k=3, degree=3)
 
-    omega = markers.mesh()
-    dim = omega.geometry().dim()
-    gamma = EmbeddedMesh(omega, markers, 1, normal=[0.5]*dim)
-
+    omega = subdomains.mesh()
+    gamma = hierarchy[0]  # EmebeddedMesh
+    # Hiereachy as Mesh instances
+    hierarchy = [h.mesh for h in hierarchy]
+    
     S = FunctionSpace(omega, 'RT', 1)        # sigma
     V = FunctionSpace(omega, 'DG', 0)        # u
     Q = FunctionSpace(gamma.mesh, 'DG', 0)   # p
@@ -84,10 +85,13 @@ def main(markers, subdomains, beta=1E-10):
 
     # Alternative B22 block:
     mg_params = {'macro_size': 1,
-                 'nlevels': 4,
+                 'nlevels': len(hierarchy),
                  'eta': 0.4}
+    # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
+    # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
+    # boundary conditions are set
     bdry = DomainBoundary()
-    B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params)  
+    B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],
@@ -116,6 +120,9 @@ if __name__ == '__main__':
                          default=2)
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
+    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
+                        default=4)
+
     args = parser.parse_args()
 
     dim = args.D
@@ -131,14 +138,33 @@ if __name__ == '__main__':
     interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
                 3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
     interior = CompiledSubDomain(interior[dim])
-    
-    history = []
-    for n in [2**i for i in range(2, 1+args.n)]:
-        mesh = Mesh(*(n, )*dim)
-        markers = FacetFunction('size_t', mesh, 0)
-        gamma.mark(markers, 1)
-        assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
 
+    
+    def compute_hierarchy(n, nlevels):
+        '''
+        The mesh where we want to solve is n. Here we compute previous
+        levels for setting up multrid. nlevels in total.
+        '''
+        assert nlevels > 0
+
+        if nlevels == 1:
+            mesh = Mesh(*(n, )*dim)
+
+            markers = FacetFunction('size_t', mesh, 0)
+            gamma.mark(markers, 1)
+            assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
+            # NOTE: !(EmbeddedMesh <:  Mesh)
+            return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim)]
+
+        return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
+
+    
+    for n in [2**i for i in range(5, 5+args.n)]:
+        # Embedded
+        hierarchy = compute_hierarchy(n, nlevels=4)
+
+        mesh = Mesh(*(n, )*dim)
+        # Setup tags of interior domains 
         subdomains = CellFunction('size_t', mesh, 0)
         
         try:
@@ -152,9 +178,9 @@ if __name__ == '__main__':
                 subdomains[cell] = interior.inside(x, False)
         
         assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
-        
-        size, niters = main(markers, subdomains)
 
-        msg = 'Problem size %d, current iters %d, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
-        history.append(niters)
+        size, niters = main(hierarchy, subdomains)
+
+    #    msg = 'Problem size %d, current iters %d, previous %r'
+    #    print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
+    #    history.append(niters)
