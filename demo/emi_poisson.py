@@ -87,11 +87,11 @@ def main(markers, subdomains, beta=1E-10):
                  'nlevels': 4,
                  'eta': 0.4}
     bdry = DomainBoundary()
-    #B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params)  
+    B22alt = Hs0NormMG(Q, bdry, 0.5, mg_params)  
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],
-                    [0, 0, B22]])
+                    [0, 0, B22alt]])
 
     x = AA.create_vec()
     x.randomize()
