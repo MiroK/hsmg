@@ -1,6 +1,9 @@
 from dolfin import FunctionSpace, interpolate, Expression, PETScMatrix
 from dolfin import UnitSquareMesh, FiniteElement, UnitIntervalMesh, near
 from dolfin import DomainBoundary, CompiledSubDomain
+from dolfin import FacetFunction, EdgeFunction, UnitCubeMesh
+
+from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from hsmg.restriction import restriction_matrix, Dirichlet_dofs
 from hsmg.hierarchy import by_refining
@@ -53,7 +56,6 @@ def check(seed, elm, f, nlevels=6):
         assert np.linalg.norm(Rf-y, np.inf) <  1E-14
     return True
 
-
 def test_1d_P1():
     mesh = UnitIntervalMesh(2)
     elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
@@ -84,7 +86,45 @@ def test_2d_P2():
     f = Expression('x[0]*x[0]+2*x[1]-x[1]*x[1]', degree=2)
 
     assert check(mesh, elm, f, 4)
+
+# --------------------------------------------------------------------
         
+def test_2d1d():
+    mesh = UnitSquareMesh(4, 4)    
+    gamma = FacetFunction('size_t', mesh, 0)
+    CompiledSubDomain('near(x[0], x[1])').mark(gamma, 1)
+
+    mesh = EmbeddedMesh(mesh, gamma, 1).mesh
+    f = Expression('x[0]+2*x[1]', degree=1)
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
+    
+    assert check(mesh, elm, f, 4)
+
+    
+def test_3d1d():
+    mesh = UnitCubeMesh(2, 2, 2)
+    gamma = EdgeFunction('size_t', mesh, 0)
+    CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(gamma, 1)
+
+    mesh = EmbeddedMesh(mesh, gamma, 1).mesh
+    f = Expression('x[0]+2*x[1]-x[2]', degree=1)
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
+    
+    assert check(mesh, elm, f, 4)
+
+    
+def test_3d2d():
+    mesh = UnitCubeMesh(2, 2, 2)
+    gamma = FacetFunction('size_t', mesh, 0)
+    CompiledSubDomain('near(x[0], 0)').mark(gamma, 1)
+
+    mesh = EmbeddedMesh(mesh, gamma, 1).mesh
+    f = Expression('x[0]+2*x[1]-x[2]', degree=1)
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
+    
+    assert check(mesh, elm, f, 4)
+    
+# --------------------------------------------------------------------
         
 def test_DirichletDofs():
     mesh = UnitIntervalMesh(10)

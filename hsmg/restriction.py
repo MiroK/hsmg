@@ -3,15 +3,16 @@ from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
 from dolfin import FunctionSpace, Cell, Point, warning, as_backend_type
 from dolfin import FacetFunction, Constant, DirichletBC
 from dolfin import Mesh, cells, Expression, Function
+from dolfin import warning
 
 from itertools import izip
 from petsc4py import PETSc
 import numpy as np
 
 
-def restriction_mat((Vh, VH)):
+def interpolation_mat((Vh, VH)):
     '''
-    Restriction matrix taking Vh to VH.
+    Interpolation matrix taking Vh to VH.
 
     A function \phi_H\in V_H has coefficients given as LH_k(\phi_h) where
     LH_k is the k-th degree of freedom of VH.
@@ -24,6 +25,23 @@ def restriction_mat((Vh, VH)):
     # For this to work I only make sure that function values are the same
     assert Vh.dolfin_element().value_rank() == VH.dolfin_element().value_rank()
     assert Vh.ufl_element().value_shape() == VH.ufl_element().value_shape()
+
+    # A case of 3d-1d will wail because cell orientation (of interval)
+    # will be not defined. In this case fall back is 0
+    try:
+        Cell(Vh.mesh(), 0).cell_normal()
+        get_orientation_h = lambda cell: cell.orientation()
+    except RuntimeError:
+        warning('Unable to compute cell orientation. Falling back to 0.')
+        get_orientation_h = lambda cell: 0
+
+    try:
+        Cell(VH.mesh(), 0).cell_normal()
+        get_orientation_H = lambda cell: cell.orientation()
+    except RuntimeError:
+        warning('Unable to compute cell orientation. Falling back to 0.')
+        get_orientation_H = lambda cell: 0
+
 
     mesh = Vh.mesh()
     tree = mesh.bounding_box_tree()
@@ -52,7 +70,7 @@ def restriction_mat((Vh, VH)):
             dofs_H = Hdmap.cell_dofs(cell_H.index())
             # Alloc for dof definition
             vertex_coordinates_H = cell_H.get_vertex_coordinates()
-            cell_orientation_H = cell_H.orientation()
+            cell_orientation_H = get_orientation_H(cell_H)
 
             for local_H, dof_H in enumerate(dofs_H):
 
@@ -79,7 +97,7 @@ def restriction_mat((Vh, VH)):
                 # Fine basis function on this (fine) cells
                 cell_h = Cell(mesh, c)
                 vertex_coordinates_h = cell_h.get_vertex_coordinates()
-                cell_orientation_h = cell_h.orientation()
+                cell_orientation_h = get_orientation_h(cell_h)
 
                 # Fine indices = columns
                 hdofs = hdmap.cell_dofs(c)
@@ -106,7 +124,7 @@ def restriction_matrix(fine_space, mesh_hierarchy, convert=to_csr_matrix):
     elm = fine_space.ufl_element()
     fem_spaces = [FunctionSpace(mesh, elm) for mesh in mesh_hierarchy]
 
-    R = map(restriction_mat, zip(fem_spaces[:-1], fem_spaces[1:]))
+    R = map(interpolation_mat, zip(fem_spaces[:-1], fem_spaces[1:]))
     
     R = map(convert, R)
     
