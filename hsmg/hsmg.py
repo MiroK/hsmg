@@ -76,7 +76,7 @@ class HsNormMGBase(block_base):
             bdry.mark(bdries, 1)
             bcs_V = DirichletBC(V, Constant(0), bdries, 1)
         else:
-            bdry_dofs = [set()*len(mesh_hierarchy)]
+            bdry_dofs = []*len(mesh_hierarchy)
             bcs_V = None
                             
         # FIXME: boundary conditions are built into the system, okay?

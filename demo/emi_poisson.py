@@ -81,12 +81,13 @@ def main(hierarchy, subdomains, beta=1E-10):
     # Block of Riesz preconditioner
     B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
     B11 = InvDiag(assemble(inner(u, v)*dX))
-    B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+    # B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
 
     # Alternative B22 block:
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 0.4}
+
     # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
     # boundary conditions are set
@@ -158,7 +159,7 @@ if __name__ == '__main__':
 
         return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
 
-    
+    history = []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(n, nlevels=4)
@@ -181,6 +182,6 @@ if __name__ == '__main__':
 
         size, niters = main(hierarchy, subdomains)
 
-    #    msg = 'Problem size %d, current iters %d, previous %r'
-    #    print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
-    #    history.append(niters)
+        msg = 'Problem size %d, current iters %d, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
+        history.append(niters)
