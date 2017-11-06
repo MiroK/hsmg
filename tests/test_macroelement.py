@@ -3,10 +3,11 @@ from hsmg.macro_element import macro_dofmap, vertex_patch
 
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
-from dolfin import EdgeFunction, CompiledSubDomain, BoundaryMesh
-from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import FunctionSpace, FiniteElement, DomainBoundary
-from dolfin import triangle, interval, tetrahedron
+from dolfin import (EdgeFunction, CompiledSubDomain, BoundaryMesh,
+                    UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh,
+                    FunctionSpace, FiniteElement, DomainBoundary,
+                    triangle, interval, tetrahedron,
+                    RectangleMesh, BoxMesh, Point)
 
 import numpy as np
 import random
@@ -28,7 +29,7 @@ def test_hierarchy_dm():
 
 def interval3d():
     '''Mesh for testing line in 3d embedding'''
-    mesh = UnitCubeMesh(10, 10, 10)
+    mesh = UnitCubeMesh(16, 16, 16)
     f = EdgeFunction('size_t', mesh, 0)
     CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(f, 1)
     return EmbeddedMesh(mesh, f, 1).mesh
@@ -36,12 +37,14 @@ def interval3d():
 
 def interval2d():
     '''Mesh for testing line in 2d embedding'''
-    return BoundaryMesh(UnitSquareMesh(10, 10), 'exterior')
+    return BoundaryMesh(RectangleMesh(Point(-1, 0.5), Point(1, 1), 32, 32),
+                        'exterior')
 
 
 def triangle3d():
     '''Mesh for testing triangle in 3d embedding'''
-    return BoundaryMesh(UnitCubeMesh(10, 10, 10), 'exterior')
+    return BoundaryMesh(BoxMesh(Point(-1, -1, 0.5), Point(1, 1, 1), 16, 16, 16),
+                        'exterior')
 
         
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
@@ -70,7 +73,8 @@ def test_DG(cell, degree, level):
     assert dofs == set(sum((dm.cell_dofs(c).tolist() for c in patch), []))
 
     
-@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
+@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
+                                  interval2d, interval3d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG1(cell, level):
     '''CG1 on level is all CG1 on previous level'''
@@ -101,7 +105,8 @@ def test_CG1(cell, level):
     assert dofs == dofs_, (dofs, dofs_)
 
 
-@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
+@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
+                                  interval2d, interval3d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG2(cell, level):
     meshes = {interval: UnitIntervalMesh(100),
@@ -110,33 +115,35 @@ def test_CG2(cell, level):
 
     mesh = meshes[cell] if cell in meshes else cell()
     
-    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 2)
     V = FunctionSpace(mesh, elm)
 
-    gdim = mesh.geometry().dim()
-        
-    # To avoid corner cases I only look at center point
+    gdim = mesh.geometry().dim()        
+    # To avoid corner cases I only look at center p
     X = mesh.coordinates()
     center = np.array([0.5]*gdim)
     i = min(range(len(X)), key = lambda i: np.linalg.norm(X[i] - center))
             
     dofs = set(macro_dofmap(level, V, mesh)[i])
 
-    mesh.init(gdim - 1, gdim)
-    mesh.init(gdim, gdim - 1)
-    c2f = mesh.topology()(gdim, gdim-1)
-    f2c = mesh.topology()(gdim-1, gdim)
+    tdim = mesh.topology().dim()
+    
+    mesh.init(tdim - 1, tdim)
+    mesh.init(tdim, tdim - 1)
+    c2f = mesh.topology()(tdim, tdim-1)
+    f2c = mesh.topology()(tdim-1, tdim)
         
-    # Remove dofs of facets on bouding surface
+    # # Remove dofs of facets on bouding surface
     patch = vertex_patch(mesh, i, level)
     dm = V.dofmap()
 
+    print patch
     dofs_ = set(sum((dm.cell_dofs(c).tolist() for c in patch), []))
     bdry = set()
     for cell in patch:
         cell_dofs = dm.cell_dofs(int(cell))
         # Is bounding facet iff it is not shared by cells of patch
-        for local, facet in enumerate(c2f(int(cell))):
+        for local, facet in enumerate(c2f(cell)):
             other_cell = (set(f2c(facet)) - set([cell])).pop()
             if other_cell not in patch:
                 outside = dm.tabulate_facet_dofs(local)
