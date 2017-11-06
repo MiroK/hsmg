@@ -25,9 +25,8 @@ def main(hierarchy, s):
                  'eta': 0.4}
     # FIXME, bdry = None does not work at the moment
     bdry = DomainBoundary()
-    # B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
-
-    B = H1_L2_InterpolationNorm(V, s).get_s_norm_inv(s=s, as_type=PETScMatrix)
+    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
+    # B = H1_L2_InterpolationNorm(V, s).get_s_norm_inv(s=s, as_type=PETScMatrix)
 
     x = Function(V).vector()
     # Init guess is random
@@ -79,7 +78,7 @@ if __name__ == '__main__':
             gamma = 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)'
         else:
             gamma = 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'
-        gamma = CompiledSubDomain(gamma[dim])
+        gamma = CompiledSubDomain(gamma)
     else:
         dim = int(dim)
         gamma = None
