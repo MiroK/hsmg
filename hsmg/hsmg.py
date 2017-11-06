@@ -53,7 +53,14 @@ class HsNormMGBase(block_base):
         nlevels = mg_params['nlevels']
         if mesh_hierarchy is None:
             mesh_hierarchy = hierarchy.by_coarsening(V.mesh(), nlevels)
-
+        else:
+            # Make sure that the hierarchy makes sense for V
+            f = lambda mesh: (mesh.geometry().dim(), mesh.topology().dim())
+            
+            gdim, tdim = f(V.mesh())
+            assert all((gdim, tdim) == f(h) for h in mesh_hierarchy)
+            assert V.mesh().num_cells() == mesh_hierarchy[0].num_cells()
+            
         # If el is the finite element of V we build here operators
         # taking FunctionSpace(mesh_hierarchy[i], el) to
         # FunctionSpace(mesh_hierarchy[i+1], el)
@@ -126,7 +133,8 @@ class HsNormMG(HsNormMGBase):
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
-            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
+                inner(u, v)*dx
                 
         m = inner(u, v)*dx
         # Note the introduction
@@ -158,7 +166,7 @@ class Hs0NormMG(HsNormMGBase):
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
-            a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
         
         m = inner(u, v)*dx
 

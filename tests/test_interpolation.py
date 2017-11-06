@@ -1,4 +1,4 @@
-from hsmg.restriction import restriction_mat
+from hsmg.restriction import interpolation_mat
 from dolfin import *
 import numpy as np
 import pytest
@@ -18,7 +18,7 @@ def test_identity_property(elm):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, elm)
     
-    R = restriction_mat((V, V))
+    R = interpolation_mat((V, V))
     x = as_backend_type(Function(V).vector()).vec()
     Rx = x.copy()
 
@@ -89,7 +89,7 @@ def test_injection_property(rank, degree_rise, cell):
         Vh = FunctionSpace(mesh, elm)
         VH = FunctionSpace(mesh_H, elm_H)    
 
-        R = restriction_mat((Vh, VH))
+        R = interpolation_mat((Vh, VH))
         x = as_backend_type(interpolate(f, Vh).vector()).vec()
         Rx = as_backend_type(interpolate(f, VH).vector()).vec()
 
@@ -133,7 +133,7 @@ def test_injection_property_mixed(cell):
     Vh = FunctionSpace(mesh, elm)
     VH = FunctionSpace(mesh_H, elm)
     
-    R = restriction_mat((Vh, VH))
+    R = interpolation_mat((Vh, VH))
     x = as_backend_type(interpolate(f, Vh).vector()).vec()
     Rx = as_backend_type(interpolate(f, VH).vector()).vec()
 

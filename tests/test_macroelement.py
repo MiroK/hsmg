@@ -1,14 +1,19 @@
 from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap, vertex_patch
+
+from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
+
+from dolfin import EdgeFunction, CompiledSubDomain, BoundaryMesh
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import FunctionSpace, FiniteElement
+from dolfin import FunctionSpace, FiniteElement, DomainBoundary
 from dolfin import triangle, interval, tetrahedron
+
 import numpy as np
 import random
 import pytest
 
 
-def test_hierarchy():
+def test_hierarchy_dm():
     mesh = UnitIntervalMesh(5)
     hierarchy = by_refining(mesh, 4)
     V = FunctionSpace(hierarchy[0], 'CG', 1)
@@ -18,17 +23,40 @@ def test_hierarchy():
         assert FunctionSpace(mesh, 'CG', 1).dim() == len(d)
 
         
-@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
+# --------------------------------------------------------------------
+
+
+def interval3d():
+    '''Mesh for testing line in 3d embedding'''
+    mesh = UnitCubeMesh(10, 10, 10)
+    f = EdgeFunction('size_t', mesh, 0)
+    CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(f, 1)
+    return EmbeddedMesh(mesh, f, 1).mesh
+
+
+def interval2d():
+    '''Mesh for testing line in 2d embedding'''
+    return BoundaryMesh(UnitSquareMesh(10, 10), 'exterior')
+
+
+def triangle3d():
+    '''Mesh for testing triangle in 3d embedding'''
+    return BoundaryMesh(UnitCubeMesh(10, 10, 10), 'exterior')
+
+        
+@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
+                                  interval2d, interval3d, triangle3d])
 @pytest.mark.parametrize('degree', [0, 1, 2])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_DG(cell, degree, level):
     '''DG takes all its pathch dofs'''
-    elm = FiniteElement('Discontinuous Lagrange', cell, degree)
+    meshes = {interval: UnitIntervalMesh(100),
+              triangle: UnitSquareMesh(10, 10),
+              tetrahedron: UnitCubeMesh(4, 4, 4)}
 
-    mesh = {interval: UnitIntervalMesh(100),
-            triangle: UnitSquareMesh(10, 10),
-            tetrahedron: UnitCubeMesh(4, 4, 4)}[cell]
+    mesh = meshes[cell] if cell in meshes else cell()
 
+    elm = FiniteElement('Discontinuous Lagrange', mesh.ufl_cell(), degree)
     V = FunctionSpace(mesh, elm)
 
     i = random.randint(0, mesh.num_vertices()-1)
@@ -46,12 +74,13 @@ def test_DG(cell, degree, level):
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG1(cell, level):
     '''CG1 on level is all CG1 on previous level'''
-    elm = FiniteElement('Lagrange', cell, 1)
+    meshes = {interval: UnitIntervalMesh(100),
+              triangle: UnitSquareMesh(10, 10),
+              tetrahedron: UnitCubeMesh(8, 8, 8)}
 
-    mesh = {interval: UnitIntervalMesh(100),
-            triangle: UnitSquareMesh(10, 10),
-            tetrahedron: UnitCubeMesh(8, 8, 8)}[cell]
-
+    mesh = meshes[cell] if cell in meshes else cell()
+    
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
     V = FunctionSpace(mesh, elm)
 
     # To avoid corner cases I only look at center point
@@ -75,13 +104,15 @@ def test_CG1(cell, level):
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG2(cell, level):
-    elm = FiniteElement('Lagrange', cell, 2)
+    meshes = {interval: UnitIntervalMesh(100),
+              triangle: UnitSquareMesh(10, 10),
+              tetrahedron: UnitCubeMesh(8, 8, 8)}
 
-    mesh = {interval: UnitIntervalMesh(100),
-            triangle: UnitSquareMesh(10, 10),
-            tetrahedron: UnitCubeMesh(8, 8, 8)}[cell]
-
+    mesh = meshes[cell] if cell in meshes else cell()
+    
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
     V = FunctionSpace(mesh, elm)
+
     gdim = mesh.geometry().dim()
         
     # To avoid corner cases I only look at center point
