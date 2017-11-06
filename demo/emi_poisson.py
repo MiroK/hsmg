@@ -86,7 +86,8 @@ def main(hierarchy, subdomains, beta=1E-10):
     # Alternative B22 block:
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
-                 'eta': 0.4}
+                 'eta': 1.0,
+                 'size': 1}
 
     # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no

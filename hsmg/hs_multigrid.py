@@ -7,23 +7,23 @@ from dolfin import between
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
 
-def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
+def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
     '''
     Factory function for creating instances of MG methods for fractional Sobolev norms.
     INPUT:
         A: Stiffness matrix on finest level
         M: Mass matrix on finest level
         R: Restriction matrices
+        s: Fractionality exponent
         bdry_dofs: Boundary DOFs on each mesh level in hierarchy.
         macro_dofmap: For each level tabulates DOFs for each subdomain, to be used in smoother.
         kwargs: Other parameters
     OUTPUT:
         res: Returns instance of MG-method that works on vectors, and can be called via __call__(b).
     '''
-    # Dummy for testing
     class FracLapMG(object):
         '''Class for MG method''' 
-        def __init__(self, A, M, R, macro_dofmap, size=1, bdry_dofs=None, **kwargs):
+        def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             '''Constructor
             INPUT:
                 A: Stiffness matrix in finest level.
@@ -35,36 +35,26 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
                 ns: Number of smoothings
                 s: (0,1), fractionality
                 eta: Scaling coefficient for smoother.
-                mass_term: Use a 0-order term in interpolation norm
             '''
             self.As = [A,]
             self.Ms = [M,]
             self.R = R
             self.J = len(R) + 1
-            self.kwargs = kwargs
-            if "s" not in self.kwargs.keys():
-                self.s = 1.
-            else:
-                assert between(s, (0.,1.))
-            
-            if "ns" not in self.kwargs.keys():
-                self.ns = 1
-            else:
-                assert isinstance(self.ns, int)
-                assert self.ns >= 1
+            self.mg_params = mg_params
 
-            if "eta" not in self.kwargs.keys():
-                self.eta = 0.2
+            assert between(s, (0.,1.))
+            self.s = s
+            if "eta" not in self.mg_params.keys():
+                self.eta = 1.0
             else:
-                assert eta > 0.
-
-            if "mass_term" not in self.kwargs.keys():
-                self.mass_term = False
-            else:
-                assert isinstance(self.mass_term, bool)
+                assert self.eta > 0.
             # Set patch-to-DOFs maps for each level:
-            assert size >= 1
-            self.macro_dms = macro_dofmap(size)
+            if "size" not in self.mg_params.keys():
+                self.size = 1
+            else:
+                assert self.size >= 1
+
+            self.macro_dms = macro_dofmap(self.size)
             assert len(self.macro_dms) == self.J
             # Set up matrices:
             for Rm in self.R:
@@ -97,7 +87,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
             self.set_coarsest_inverse()
 
         def __getattr__(self, key):
-            return self.kwargs[key]
+            return self.mg_params[key]
         
         def __setattr__(self, key, value):
             super(FracLapMG, self).__setattr__(key,value)
@@ -110,42 +100,11 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
                 Mk = self.Ms[k]
                 dofmap_patches = self.macro_dms[k]
                 mask = self.masks[k]
-                if self.mass_term:
-                    S = HSAS(Mk+Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta)
-                else:
-                    S = HSAS(Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta)
+                S = HSAS(Ak, Mk, self.s, dofmap_patches, mask, eta=self.eta)
                 self.smoothers.append( S )
 
             # Checks:
             assert len(self.smoothers) == self.J
-
-        def multigrid_level(self,j,bj):
-            '''Multigrid method on general level.
-            INPUT:
-                j: integer; level in mesh hierarchy
-                bj: vector to apply MG method to.
-            RETURN:
-                res: Output vector from method.
-            '''
-            if (j >= self.J-1):
-                return self.coarse_solve(bj)
-            else:
-                S = self.smoothers[j]
-                A = self.As[j]
-                Rm = self.R[j]
-                x = np.zeros(len(bj))
-                # Pre-smoothings:
-                for i in range(self.ns):
-                    #FIXME: Replace residual operator
-                    x +=  S(bj - A.dot(x))
-                # restrict residual:
-                rc = Rm.dot(bj - A.dot(x))
-                # coarse grid correction:
-                x += Rm.T.dot( self.multigrid_level(j+1,rc) )
-                # Post-smoothings:
-                for i in range(self.ns):
-                    x += S(bj - A.dot(x))
-                return x
 
         def bpx_level(self, j, bj):
             '''BPX preconditioner on level j.'''
@@ -168,10 +127,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
             mask = self.masks[-1]
             A = self.As[-1].todense()[np.ix_(mask,mask)]
             M = self.Ms[-1].todense()[np.ix_(mask,mask)]
-            if self.mass_term:
-                lam, U = la.eigh( A+M, b=M, type=1)
-            else:
-                lam, U = la.eigh( A, b=M, type=1)
+            lam, U = la.eigh( A, b=M, type=1)
             U = np.asarray(U)
             self.Hsinv_coarse = np.dot(lam**(-self.s) * U, U.T)
 
@@ -186,7 +142,24 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, **kwargs):
             '''Call method.'''
             return self.bpx_level(0,b)
 
-    return FracLapMG(A,M,R, macro_dofmap, size=1, bdry_dofs=bdry_dofs, **kwargs)
+    class NegFracLapMG(object):
+        ''' BPX preconditioner for fractional laplacian with negative exponent.'''
+        def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
+            self.A = A
+            assert between( s, (-1.,0.) )
+            self.BPX = FracLapMG(A, M, R, 0.5*(1.+s), bdry_dofs, macro_dofmap, mg_params)
+
+        def __call__(self, b):
+            x0 = self.BPX(b)
+            b1 = self.A.dot(x0)
+            x1 = self.BPX(b1)
+            return x1
+
+    # Return different types of preconditioner depending on s:
+    if s < 0.:
+        return NegFracLapMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
+    else:
+        return FracLapMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
 
 
 class HSAS(object):
