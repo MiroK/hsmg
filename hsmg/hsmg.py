@@ -138,7 +138,7 @@ class HsNormMG(HsNormMGBase):
                 
         m = inner(u, v)*dx
         # Note the introduction
-        HsNormMGBase.__init__(self, m+a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
 
         
 class Hs0NormMG(HsNormMGBase):
