@@ -72,15 +72,19 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             assert len(self.As) == self.J
             assert len(self.Ms) == self.J
             # Set masks:
+            self.masks = []
             if bdry_dofs is not None:
-                self.masks = []
                 for i in range(self.J):
                     mask = np.ones( self.As[i].shape[0], dtype=bool)
                     mask[bdry_dofs[i]] = False
                     self.masks.append(mask)
-                assert len(self.masks) == self.J
+            # (Miro) for no bcs all dofs are active
             else:
-                self.masks = [[]]*self.J
+                for i in range(self.J):
+                    mask = np.ones( self.As[i].shape[0], dtype=bool)
+                    self.masks.append(mask)
+                    
+            assert len(self.masks) == self.J
             # Set smoothers:
             self.set_smoothers()
             # Set coarsest level inverse

@@ -14,8 +14,8 @@ def interpolation_mat((Vh, VH)):
     '''
     Interpolation matrix taking Vh to VH.
 
-    A function \phi_H\in V_H has coefficients given as LH_k(\phi_h) where
-    LH_k is the k-th degree of freedom of VH.
+    A function basis function \phi_H \in V_H has coefficients given as 
+    Lh_k(\phi_H) where Lh_k is the k-th degree of freedom of Vh.
     '''
     # NOTE: this implementation is slightly slower for CG1 elements but
     # unlike that one (using element.eval_basis*) it is generic. In particular,
@@ -42,7 +42,6 @@ def interpolation_mat((Vh, VH)):
         warning('Unable to compute cell orientation. Falling back to 0.')
         get_orientation_H = lambda cell: 0
 
-
     mesh = Vh.mesh()
     tree = mesh.bounding_box_tree()
     limit = mesh.topology().size_global(mesh.topology().dim())
@@ -56,63 +55,74 @@ def interpolation_mat((Vh, VH)):
     hdmap = Vh.dofmap()
     elm_h = Vh.element()
 
-    # The is a dummy to be adjusted to represent basis functions of the fine space
-    basis_function = Function(Vh)
+    # The is a dummy to be adjusted to represent basis functions of the coarse space
+    basis_function = Function(VH)
     basis_function_coefs = as_backend_type(basis_function.vector()).vec().array
     # Rows
     visited_dofs = [False]*VH.dim()
     # Column values
-    dof_values = np.zeros(elm_h.space_dimension(), dtype='double')
-
     with petsc_serial_matrix(VH, Vh) as mat:
 
         for cell_H in cells(VH.mesh()):
             dofs_H = Hdmap.cell_dofs(cell_H.index())
             # Alloc for dof definition
-            vertex_coordinates_H = cell_H.get_vertex_coordinates()
-            cell_orientation_H = get_orientation_H(cell_H)
-
+            
             for local_H, dof_H in enumerate(dofs_H):
 
                 if visited_dofs[dof_H]: continue
                 
                 visited_dofs[dof_H] = True
+                # basis_function of dof_H
+                basis_function_coefs[dof_H] = 1.
 
-                # dof(local w.r.t to element) = basis_foo -> number
-                degree_of_freedom = lambda f: elm_H.evaluate_dof(local_H,
-                                                                 f,
-                                                                 vertex_coordinates_H,
-                                                                 cell_orientation_H,
-                                                                 cell_H)
-                
                 # Extract coordinate for computing h collision
                 x = Hdofs_x[dof_H]
         
-                c = tree.compute_first_entity_collision(Point(*x))
-
-                if c >= limit:
-                    warning('Dof at %r not found', x)
-                    continue
-
-                # Fine basis function on this (fine) cells
-                cell_h = Cell(mesh, c)
-                vertex_coordinates_h = cell_h.get_vertex_coordinates()
-                cell_orientation_h = get_orientation_h(cell_h)
-
-                # Fine indices = columns
-                hdofs = hdmap.cell_dofs(c)
-                for local_h, dof_h in enumerate(hdofs):
-                    # Turn into basis function of this dof
-                    basis_function_coefs[dof_h] = 1.
+                cs = tree.compute_entity_collisions(Point(*x))
+                # Go over colliding cells of fine space getting their dofs
+                # NOTE: consider P1
+                # 0   1  2   3   4
+                # |---|--|---|---|
+                #     1      2
+                # |------|-------|
+                #        x
+                # So for cell 1 basis_x is evaluated at 1 2 3
+                # and for cell 2 basis_x is evaluated at 2 3 4
+                # 2 would have 2 contributions from two cells. We don't
+                # want this, this only one
+                col_indices, dof_values = [], []
+                for c in cs:
                     
-                    dof_values[local_h] = degree_of_freedom(basis_function)
+                    if c >= limit:
+                        warning('Dof at %r not found', x)
+                        continue
 
-                    # Revert
-                    basis_function_coefs[dof_h] = 0.
-                # Can fill the matrix now
-                col_indices = np.array(hdofs, dtype='int32')
-                # Insert
+                    # Fine degree of freedom on this (fine) cells
+                    cell_h = Cell(mesh, c)
+                    vertex_coordinates_h = cell_h.get_vertex_coordinates()
+                    cell_orientation_h = get_orientation_h(cell_h)
+
+                    # Fine indices = columns
+                    hdofs = hdmap.cell_dofs(c)
+                    for local_h, dof_h in enumerate(hdofs):
+                        if dof_h in col_indices: continue
+
+                        col_indices.append(dof_h)
+                        # dof(local w.r.t to element) = basis_foo -> number
+                        degree_of_freedom = lambda f: elm_h.evaluate_dof(local_h,
+                                                                         f,
+                                                                         vertex_coordinates_h,
+                                                                         cell_orientation_h,
+                                                                         cell_h)
+                        # Evalueate coarse basis foo at fine dofs
+                        dof_value = degree_of_freedom(basis_function)
+                        dof_values.append(dof_value)
+                # Can fill the matrix row
+                col_indices = np.array(col_indices, dtype='int32')
+                dof_values = np.array(dof_values)
                 mat.setValues([dof_H], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
+                # Revert. Sot that setting to 1 will make ti a correct basis foo
+                basis_function_coefs[dof_H] = 0.
     return mat
 
 

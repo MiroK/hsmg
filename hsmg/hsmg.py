@@ -58,7 +58,7 @@ class HsNormMGBase(block_base):
             f = lambda mesh: (mesh.geometry().dim(), mesh.topology().dim())
             
             gdim, tdim = f(V.mesh())
-            assert all((gdim, tdim) == f(h) for h in mesh_hierarchy)
+            assert all((gdim, tdim) == f(h) for h in mesh_hierarchy), (gdim, tdim)
             assert V.mesh().num_cells() == mesh_hierarchy[0].num_cells()
             
         # If el is the finite element of V we build here operators
@@ -83,7 +83,7 @@ class HsNormMGBase(block_base):
             bdry.mark(bdries, 1)
             bcs_V = DirichletBC(V, Constant(0), bdries, 1)
         else:
-            bdry_dofs = []*len(mesh_hierarchy)
+            bdry_dofs = None
             bcs_V = None
                             
         # FIXME: boundary conditions are built into the system, okay?
@@ -99,7 +99,7 @@ class HsNormMGBase(block_base):
     # Implementation of cbc.block API --------------------------------
     def matvec(self, b):
         # numpy -> numpy
-        x_values = self.mg(b.array())  
+        x_values = self.mg(b.array())
         # Fill in dolfin Vector
         x = self.create_vec(dim=0)
         x.set_local(x_values); x.apply('insert')
@@ -138,7 +138,7 @@ class HsNormMG(HsNormMGBase):
                 
         m = inner(u, v)*dx
         # Note the introduction
-        HsNormMGBase.__init__(self, m+a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
 
         
 class Hs0NormMG(HsNormMGBase):
