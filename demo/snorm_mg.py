@@ -3,7 +3,7 @@
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
-from hsmg import Hs0NormMG, HsNormMG
+from hsmg import HsNormMG
 
 from block.iterative import ConjGrad
 
@@ -15,7 +15,6 @@ def main(hierarchy, s):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
-
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
     
@@ -26,14 +25,17 @@ def main(hierarchy, s):
                  'eta': 0.4}
     # FIXME, bdry = None does not work at the moment
     bdry = DomainBoundary()
-    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
+    # B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
+
+    B = H1_L2_InterpolationNorm(V, s).get_s_norm_inv(s=s, as_type=PETScMatrix)
 
     x = Function(V).vector()
-
+    # Init guess is random
     xrand = np.random.random(x.local_size())
     xrand -= xrand.sum()/x.local_size()
     x.set_local(xrand)
 
+    # Zero
     b = Function(V).vector()
 
     Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
@@ -53,20 +55,34 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('s', type=float, help='Exponent of the operator')
-    parser.add_argument('-D', type=int, help='Solve 2d in 1d, or 2d in 3d problem',
-                        default=2)
+    parser.add_argument('-D', type=str, help='Solve 1d-1d, 2d-2d, 3d-3d, 1d-2d, 1d-3d, 2d-3d',
+                        default='1')
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     args = parser.parse_args()
 
     dim = args.D
 
-    Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
-    
-    gamma = {2: 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)',
-             3: 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'}
-    
-    gamma = CompiledSubDomain(gamma[dim])
+    # Embedding mesh
+    print '>>>', dim
+    if dim == '1':
+        Mesh = UnitIntervalMesh
+    elif dim in ('2', '12'):
+        Mesh = UnitSquareMesh
+    else:
+        Mesh = UnitCubeMesh
+
+    # Embedded
+    if len(dim) == 2:
+        dim = int(dim[-1])
+        if dim == 2:
+            gamma = 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)'
+        else:
+            gamma = 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'
+        gamma = CompiledSubDomain(gamma[dim])
+    else:
+        dim = int(dim)
+        gamma = None
     
     def compute_hierarchy(n, nlevels):
         '''
@@ -78,11 +94,13 @@ if __name__ == '__main__':
         if nlevels == 1:
             mesh = Mesh(*(n, )*dim)
 
+            if gamma is None: return [mesh]
+
             markers = FacetFunction('size_t', mesh, 0)
             gamma.mark(markers, 1)
             assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
             # NOTE: !(EmbeddedMesh <:  Mesh)
-            return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim).mesh]
+            return [EmbeddedMesh(mesh, markers, 1).mesh]
 
         return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
 
