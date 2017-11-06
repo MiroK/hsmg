@@ -29,14 +29,14 @@ def interpolation_mat((Vh, VH)):
     # A case of 3d-1d will wail because cell orientation (of interval)
     # will be not defined. In this case fall back is 0
     try:
-        Cell(Vh.mesh(), 0).cell_normal()
+        Cell(Vh.mesh(), 0).orientation()
         get_orientation_h = lambda cell: cell.orientation()
     except RuntimeError:
         warning('Unable to compute cell orientation. Falling back to 0.')
         get_orientation_h = lambda cell: 0
 
     try:
-        Cell(VH.mesh(), 0).cell_normal()
+        Cell(VH.mesh(), 0).orientation()
         get_orientation_H = lambda cell: cell.orientation()
     except RuntimeError:
         warning('Unable to compute cell orientation. Falling back to 0.')
@@ -120,6 +120,9 @@ def interpolation_mat((Vh, VH)):
                 # Can fill the matrix row
                 col_indices = np.array(col_indices, dtype='int32')
                 dof_values = np.array(dof_values)
+
+                # print dof_H, x, col_indices, '@', Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
+                
                 mat.setValues([dof_H], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
                 # Revert. Sot that setting to 1 will make ti a correct basis foo
                 basis_function_coefs[dof_H] = 0.
@@ -162,8 +165,6 @@ def Dirichlet_dofs(V, bdry, mesh_hierarchy):
 
         bc = bc_def(V, boundary)
 
-        print bc.get_boundary_values().keys()
-        
         bdry_dofs.append( bc.get_boundary_values().keys() )
         # FIXME: are values of interest
         # NOTE (Trygve): Removed set for easier array slicing.
