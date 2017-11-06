@@ -7,13 +7,14 @@ from dolfin import between
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
 
-def setup(A, M, R, bdry_dofs, macro_dofmap, mg_params):
+def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
     '''
     Factory function for creating instances of MG methods for fractional Sobolev norms.
     INPUT:
         A: Stiffness matrix on finest level
         M: Mass matrix on finest level
         R: Restriction matrices
+        s: Fractionality exponent
         bdry_dofs: Boundary DOFs on each mesh level in hierarchy.
         macro_dofmap: For each level tabulates DOFs for each subdomain, to be used in smoother.
         kwargs: Other parameters
@@ -22,7 +23,7 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, mg_params):
     '''
     class FracLapMG(object):
         '''Class for MG method''' 
-        def __init__(self, A, M, R, bdry_dofs, macro_dofmap, mg_params):
+        def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             '''Constructor
             INPUT:
                 A: Stiffness matrix in finest level.
@@ -40,11 +41,9 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, mg_params):
             self.R = R
             self.J = len(R) + 1
             self.mg_params = mg_params
-            if "s" not in self.mg_params.keys():
-                self.s = 1.
-            else:
-                assert between(s, (0.,1.))
-            
+
+            assert between(s, (0.,1.))
+            self.s = s
             if "eta" not in self.mg_params.keys():
                 self.eta = 1.0
             else:
@@ -145,13 +144,10 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, mg_params):
 
     class NegFracLapMG(object):
         ''' BPX preconditioner for fractional laplacian with negative exponent.'''
-        def __init__(self, A, M, R, bdry_dofs, macro_dofmap, mg_params):
+        def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             self.A = A
-            if "s" not in mg_params.keys():
-                mg_params["s"] = 0.5
-            self.s = mg_params["s"]
-            mg_params["s"] = (self.s+1.)*0.5
-            self.BPX = FracLapMG(A, M, R, bdry_dofs, macro_dofmap, mg_params)
+            assert between( s, (-1.,0.) )
+            self.BPX = FracLapMG(A, M, R, 0.5*(1.+s), bdry_dofs, macro_dofmap, mg_params)
 
         def __call__(self, b):
             x0 = self.BPX(b)
@@ -160,13 +156,10 @@ def setup(A, M, R, bdry_dofs, macro_dofmap, mg_params):
             return x1
 
     # Return different types of preconditioner depending on s:
-    if "s" in mg_params.keys():
-        if mg_params["s"] < 0.:
-            return NegFracLapMG(A, M, R, bdry_dofs, macro_dofmap, mg_params)
-        else:
-            return FracLapMG(A, M, R, bdry_dofs, macro_dofmap, mg_params)
+    if s < 0.:
+        return NegFracLapMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
     else:
-        return FracLapMG(A, M, R, bdry_dofs, macro_dofmap, mg_params)
+        return FracLapMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
 
 
 class HSAS(object):

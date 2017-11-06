@@ -86,7 +86,7 @@ class HsNormMGBase(block_base):
 
         A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps, mg_params)
+        self.mg = hs_multigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
