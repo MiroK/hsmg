@@ -92,7 +92,7 @@ def main(hierarchy, subdomains, beta=1E-10):
     # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
     # boundary conditions are set
-    bdry = DomainBoundary()
+    bdry = None
     B22alt = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
 
     BB = block_mat([[B00, 0, 0],
