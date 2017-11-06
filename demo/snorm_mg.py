@@ -19,11 +19,11 @@ def main(hierarchy, s):
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
     
-    A = H1_L2_InterpolationNorm(V, s).get_s_norm(s=s, as_type=PETScMatrix)
+    A = H1_L2_InterpolationNorm(V).get_s_norm(s=s, as_type=PETScMatrix)
     
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
-                 'eta': 0.4}
+                 'eta': 1.0}
     # FIXME, bdry = None does not work at the moment
     bdry = DomainBoundary()
     B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
