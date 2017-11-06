@@ -43,23 +43,22 @@ def from_np_array(A, out=PETScMatrix):
 
     
 @contextmanager
-def petsc_serial_matrix(test_space, trial_space):
+def petsc_serial_matrix(test_space, trial_space, nnz=None):
     '''PETsc.Mat from trial_space to test_space to be filled in...'''
     mesh = test_space.mesh()
     comm = mesh.mpi_comm().tompi4py()
     assert comm.size == 1
-    
-    # Alloc
-    mat = PETSc.Mat().create(comm)
 
     row_map = test_space.dofmap()
     col_map = trial_space.dofmap()
     
-    mat.setSizes([[row_map.index_map().size(IndexMap.MapSize_OWNED),
-                   row_map.index_map().size(IndexMap.MapSize_GLOBAL)],
-                  [col_map.index_map().size(IndexMap.MapSize_OWNED),
-                   col_map.index_map().size(IndexMap.MapSize_GLOBAL)]])
-    mat.setType('aij')
+    sizes = [[row_map.index_map().size(IndexMap.MapSize_OWNED),
+              row_map.index_map().size(IndexMap.MapSize_GLOBAL)],
+             [col_map.index_map().size(IndexMap.MapSize_OWNED),
+              col_map.index_map().size(IndexMap.MapSize_GLOBAL)]]
+    
+    # Alloc
+    mat = PETSc.Mat().createAIJ(sizes, nnz=nnz, comm=comm)
     mat.setUp()
     
     row_lgmap = PETSc.LGMap().create(map(int, row_map.tabulate_local_to_global_dofs()),

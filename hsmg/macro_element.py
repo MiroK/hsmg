@@ -1,4 +1,4 @@
-from dolfin import Mesh, FunctionSpace
+from dolfin import Mesh, FunctionSpace, Cell
 import numpy as np
 import operator
 
@@ -76,3 +76,13 @@ def vertex_patch(mesh, vertex, level):
         level -= 1
 
     return patch
+
+
+def cell_patch(mesh, cell):
+    '''Union of vertex patches of the cell vertices'''
+    tdim = mesh.topology().dim()
+    mesh.init(tdim, 0)
+    return map(lambda index: Cell(mesh, index),
+               reduce(operator.or_,
+                      (vertex_patch(mesh, vertex, 1) for vertex in cell.entities(0))))
+    

@@ -1,4 +1,5 @@
 from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
+from macro_element import cell_patch
 
 from dolfin import FunctionSpace, Cell, Point, warning, as_backend_type
 from dolfin import FacetFunction, Constant, DirichletBC
@@ -48,7 +49,6 @@ def interpolation_mat((Vh, VH)):
 
     # Coarse dof coordinates
     Hdmap = VH.dofmap()
-    Hdofs_x = VH.tabulate_dof_coordinates().reshape((VH.dim(), -1))
     elm_H = VH.element()
     
     # Fine
@@ -60,12 +60,49 @@ def interpolation_mat((Vh, VH)):
     basis_function_coefs = as_backend_type(basis_function.vector()).vec().array
     # Rows
     visited_dofs = [False]*VH.dim()
-    # Column values
-    with petsc_serial_matrix(VH, Vh) as mat:
 
-        for cell_H in cells(VH.mesh()):
+    # Let's estimate the number of nnz columns in the matrix for preallocation
+    nnz = 0
+    # We do this by passing the coarse mesh and computing fine space collisions
+    # with the coarse cell vertices. Patch * number of dofs
+    colliding_cells_h = []
+    dofs_per_fine_element = Vh.dolfin_element().space_dimension()
+
+    mesh_H = VH.mesh()
+    mesh_H_x = mesh_H.coordinates()
+    for cell_H in cells(mesh_H):
+        # Surrounding cells
+        patch = cell_patch(mesh_H, cell_H)
+        print cell_H.index(), [c.index() for c in patch]
+        # Get all their vertices. This is okay becasue path init connectivity
+        # in mesh
+        xs = set(sum((c.entities(0).tolist() for c in patch), []))
+        xs = mesh_H_x[list(xs)]
+        # Colliding cells
+        cs = set()
+        for x in xs:
+            print x,
+            cs.update(set(tree.compute_entity_collisions(Point(*x))))
+            cs
+        # Remove (and signal) when cell not found
+        missing = set(c for c in cs if c >= limit)
+        if missing:
+            warning('Some colliding cells are off')
+        cs.difference_update(missing)
+        print '>>>', cs
+        print
+        colliding_cells_h.append(cs)
+        
+        nnz = max(nnz, len(cs)*dofs_per_fine_element)
+
+    # Column values
+    with petsc_serial_matrix(VH, Vh, nnz=nnz) as mat:
+
+        for index_H, cell_H in enumerate(cells(mesh_H)):
             dofs_H = Hdmap.cell_dofs(cell_H.index())
-            # Alloc for dof definition
+            # Compute the fine space cells that collide with coarse cell
+            # by taking collising with the vertices of the coarse cell
+            cs = colliding_cells_h[index_H]
             
             for local_H, dof_H in enumerate(dofs_H):
 
@@ -75,12 +112,8 @@ def interpolation_mat((Vh, VH)):
                 # basis_function of dof_H
                 basis_function_coefs[dof_H] = 1.
 
-                # Extract coordinate for computing h collision
-                x = Hdofs_x[dof_H]
-        
-                cs = tree.compute_entity_collisions(Point(*x))
                 # Go over colliding cells of fine space getting their dofs
-                # NOTE: consider P1
+                # NOTE: consider continuous Lagrange 1
                 # 0   1  2   3   4
                 # |---|--|---|---|
                 #     1      2
@@ -92,11 +125,6 @@ def interpolation_mat((Vh, VH)):
                 # want this, this only one
                 col_indices, dof_values = [], []
                 for c in cs:
-                    
-                    if c >= limit:
-                        warning('Dof at %r not found', x)
-                        continue
-
                     # Fine degree of freedom on this (fine) cells
                     cell_h = Cell(mesh, c)
                     vertex_coordinates_h = cell_h.get_vertex_coordinates()
@@ -117,11 +145,12 @@ def interpolation_mat((Vh, VH)):
                         # Evalueate coarse basis foo at fine dofs
                         dof_value = degree_of_freedom(basis_function)
                         dof_values.append(dof_value)
+
                 # Can fill the matrix row
                 col_indices = np.array(col_indices, dtype='int32')
                 dof_values = np.array(dof_values)
 
-                # print dof_H, x, col_indices, '@', Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
+                print dof_H, cs#Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
                 
                 mat.setValues([dof_H], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
                 # Revert. Sot that setting to 1 will make ti a correct basis foo
