@@ -1,7 +1,7 @@
 * Installation of Hs multigrid
   Execute `source setup.rc` to have hsmg module available in this shell.
   FEniCS stack (which include numpy, scipy) is currently the only dependency.
-  Running demos requires fenics_ii.
+  Running demos and tests require fenics_ii.
 
 ** Tests
    Execute `pytest` in the current directory.

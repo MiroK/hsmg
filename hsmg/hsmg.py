@@ -133,7 +133,8 @@ class HsNormMG(HsNormMGBase):
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
-            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
+                inner(u, v)*dx
                 
         m = inner(u, v)*dx
 
@@ -165,7 +166,7 @@ class Hs0NormMG(HsNormMGBase):
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
-            a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
         
         m = inner(u, v)*dx
 
