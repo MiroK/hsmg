@@ -22,7 +22,7 @@ class HsNormMGBase(block_base):
     in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
     such that for all v \in V a(u, v) = m(u, v).
     '''
-    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None, **kwargs):
+    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None):
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -86,7 +86,7 @@ class HsNormMGBase(block_base):
 
         A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps, **kwargs)
+        self.mg = hs_multigrid.setup(A, M, R, bdry_dofs, macro_dofmaps, mg_params)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
@@ -129,8 +129,8 @@ class HsNormMG(HsNormMGBase):
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
                 
         m = inner(u, v)*dx
-
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, mass_term=True)
+        # Note the introduction
+        HsNormMGBase.__init__(self, m+a, m, bdry, s, mg_params, mesh_hierarchy)
 
         
 class Hs0NormMG(HsNormMGBase):
