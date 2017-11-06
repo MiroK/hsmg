@@ -43,7 +43,7 @@ def interpolation_mat((Vh, VH)):
         warning('Unable to compute cell orientation. Falling back to 0.')
         get_orientation_H = lambda cell: 0
 
-    mesh = Vh.mesh()
+    mesh = VH.mesh()
     tree = mesh.bounding_box_tree()
     limit = mesh.topology().size_global(mesh.topology().dim())
 
@@ -59,103 +59,63 @@ def interpolation_mat((Vh, VH)):
     basis_function = Function(VH)
     basis_function_coefs = as_backend_type(basis_function.vector()).vec().array
     # Rows
-    visited_dofs = [False]*VH.dim()
+    visited_dofs = [False]*Vh.dim()
 
-    # Let's estimate the number of nnz columns in the matrix for preallocation
-    nnz = 0
-    # We do this by passing the coarse mesh and computing fine space collisions
-    # with the coarse cell vertices. Patch * number of dofs
-    colliding_cells_h = []
-    dofs_per_fine_element = Vh.dolfin_element().space_dimension()
-
-    mesh_H = VH.mesh()
-    mesh_H_x = mesh_H.coordinates()
-    for cell_H in cells(mesh_H):
-        # Surrounding cells
-        patch = cell_patch(mesh_H, cell_H)
-        print cell_H.index(), [c.index() for c in patch]
-        # Get all their vertices. This is okay becasue path init connectivity
-        # in mesh
-        xs = set(sum((c.entities(0).tolist() for c in patch), []))
-        xs = mesh_H_x[list(xs)]
-        # Colliding cells
-        cs = set()
-        for x in xs:
-            print x,
-            cs.update(set(tree.compute_entity_collisions(Point(*x))))
-            cs
-        # Remove (and signal) when cell not found
-        missing = set(c for c in cs if c >= limit)
-        if missing:
-            warning('Some colliding cells are off')
-        cs.difference_update(missing)
-        print '>>>', cs
-        print
-        colliding_cells_h.append(cs)
-        
-        nnz = max(nnz, len(cs)*dofs_per_fine_element)
-
+    hdofs_x = Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))
     # Column values
-    with petsc_serial_matrix(VH, Vh, nnz=nnz) as mat:
+    with petsc_serial_matrix(Vh, VH) as mat:
 
-        for index_H, cell_H in enumerate(cells(mesh_H)):
-            dofs_H = Hdmap.cell_dofs(cell_H.index())
-            # Compute the fine space cells that collide with coarse cell
-            # by taking collising with the vertices of the coarse cell
-            cs = colliding_cells_h[index_H]
+        for cell_h in cells(Vh.mesh()):
+            dofs_h = hdmap.cell_dofs(cell_h.index())
             
-            for local_H, dof_H in enumerate(dofs_H):
+            dofs_x = hdofs_x[dofs_h]
+            for local_h, (dof_x, dof_h) in enumerate(zip(dofs_x, dofs_h)):
 
-                if visited_dofs[dof_H]: continue
+                if visited_dofs[dof_h]: continue
                 
-                visited_dofs[dof_H] = True
-                # basis_function of dof_H
-                basis_function_coefs[dof_H] = 1.
+                visited_dofs[dof_h] = True
 
-                # Go over colliding cells of fine space getting their dofs
-                # NOTE: consider continuous Lagrange 1
-                # 0   1  2   3   4
-                # |---|--|---|---|
-                #     1      2
-                # |------|-------|
-                #        x
-                # So for cell 1 basis_x is evaluated at 1 2 3
-                # and for cell 2 basis_x is evaluated at 2 3 4
-                # 2 would have 2 contributions from two cells. We don't
-                # want this, this only one
+                vertex_coordinates_h = cell_h.get_vertex_coordinates()
+                cell_orientation_h = get_orientation_h(cell_h)
+
+                # dof(local w.r.t to element) = basis_foo -> number
+                degree_of_freedom = lambda f: elm_h.evaluate_dof(local_h,
+                                                                 f,
+                                                                 vertex_coordinates_h,
+                                                                 cell_orientation_h,
+                                                                 cell_h)
+                # Colliding cells
+                cs = tree.compute_entity_collisions(Point(*dof_x))
+
                 col_indices, dof_values = [], []
                 for c in cs:
-                    # Fine degree of freedom on this (fine) cells
-                    cell_h = Cell(mesh, c)
-                    vertex_coordinates_h = cell_h.get_vertex_coordinates()
-                    cell_orientation_h = get_orientation_h(cell_h)
-
+                    dofs_H = Hdmap.cell_dofs(c)
+                    
                     # Fine indices = columns
-                    hdofs = hdmap.cell_dofs(c)
-                    for local_h, dof_h in enumerate(hdofs):
-                        if dof_h in col_indices: continue
+                    for local_H, dof_H in enumerate(dofs_H):
+                        if dof_H in col_indices: continue
 
-                        col_indices.append(dof_h)
-                        # dof(local w.r.t to element) = basis_foo -> number
-                        degree_of_freedom = lambda f: elm_h.evaluate_dof(local_h,
-                                                                         f,
-                                                                         vertex_coordinates_h,
-                                                                         cell_orientation_h,
-                                                                         cell_h)
+                        # basis_function of dof_H
+                        basis_function_coefs[dof_H] = 1.
+
+                        col_indices.append(dof_H)
+
                         # Evalueate coarse basis foo at fine dofs
                         dof_value = degree_of_freedom(basis_function)
                         dof_values.append(dof_value)
 
+                        basis_function_coefs[dof_H] = 0.
+
                 # Can fill the matrix row
                 col_indices = np.array(col_indices, dtype='int32')
                 dof_values = np.array(dof_values)
-
-                print dof_H, cs#Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
                 
-                mat.setValues([dof_H], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
-                # Revert. Sot that setting to 1 will make ti a correct basis foo
-                basis_function_coefs[dof_H] = 0.
-    return mat
+                mat.setValues([dof_h], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
+
+    # Transpose
+    matT = type(mat)()
+    mat.transpose(matT)
+    return matT
 
 
 def restriction_matrix(fine_space, mesh_hierarchy, convert=to_csr_matrix):
