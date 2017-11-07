@@ -44,7 +44,7 @@ def main(hierarchy, s):
     niters = len(Ainv.residuals) - 1
     size = V.dim()
 
-    lmin, lmax = np.sort(Ainv.eigenvalue_estimates())[[0, -1]]
+    lmin, lmax = np.sort(np.abs(Ainv.eigenvalue_estimates()))[[0, -1]]
     cond = lmax/lmin
     
     return size, niters, cond
@@ -115,5 +115,5 @@ if __name__ == '__main__':
         size, niters, cond = main(hierarchy, s=args.s)
 
         msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history))
+        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
         history.append((niters, cond))

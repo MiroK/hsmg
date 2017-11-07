@@ -1,5 +1,6 @@
 from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap, vertex_patch
+from hsmg.restriction import Dirichlet_dofs
 
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
@@ -15,14 +16,33 @@ import pytest
 
 
 def test_hierarchy_dm():
+    '''Sanity chacks, we get a patch for every vertex'''
     mesh = UnitIntervalMesh(5)
     hierarchy = by_refining(mesh, 4)
     V = FunctionSpace(hierarchy[0], 'CG', 1)
     ds = macro_dofmap(1, V, hierarchy)
 
     for mesh, d in zip(hierarchy, ds):
+        # Because there are no bcs
         assert FunctionSpace(mesh, 'CG', 1).dim() == len(d)
 
+        
+def test_hierarchy_dm_bcs():
+    '''Removing bcs'''
+    mesh = UnitSquareMesh(8, 8)
+    hierarchy = by_refining(mesh, 4)
+    bdry = DomainBoundary()
+    
+    V = FunctionSpace(hierarchy[0], 'CG', 2)
+    
+    bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
+    ds = macro_dofmap(1, V, hierarchy, bdry_dofs)
+
+    for mesh, d, bdofs in zip(hierarchy, ds, bdry_dofs):
+        # Not boundary dof is present in the macro elemnt of any vertex
+        assert not any(set(macro_el) & set(bdofs) for macro_el in d)
+        # Not that for P1 there will be less patches then maps because
+        # bdry vertex macro_element with bcs is []
         
 # --------------------------------------------------------------------
 

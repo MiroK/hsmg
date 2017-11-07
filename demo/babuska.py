@@ -12,15 +12,15 @@ from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from block import block_mat, block_vec, block_bc
-from block.iterative import MinRes
+from block.iterative import MinRes, CGN
 from block.algebraic.petsc import AMG
 
 from hsmg import HsNormMG
 
 from dolfin import *
+import numpy as np
 
-
-def main(meshes):
+def setup_system(precond, meshes):
     '''Solver'''
     omega_mesh = meshes[0]
     # Extract botttom edge meshes
@@ -65,19 +65,26 @@ def main(meshes):
     
     # Preconditioner blocks
     P00 = AMG(A00)
-    # Trace of H^1 is H^{1/2} and the dual is H^{-1/2}
-    # FIXME: this should be replaced with multigrid
-    # P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=-0.5, as_type=PETScMatrix)
+
     bdry = None
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 0.4}
-
-    P11 = HsNormMG(Q, bdry, -0.5, mg_params, mesh_hierarchy=hierarchy)  
-
+    
+    # Trace of H^1 is H^{1/2} and the dual is H^{-1/2}
+    if precond == 'mg':
+        P11 = HsNormMG(Q, bdry, -0.5, mg_params, mesh_hierarchy=hierarchy)
+    else:
+        P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=-0.5, as_type=PETScMatrix)
+        
     # The preconditioner
     BB = block_mat([[P00, 0], [0, P11]])
 
+    return AA, bb, BB
+
+    
+def iter_solve((AA, bb, BB)):
+    '''MinRes solve to get iteration counts'''
     x = AA.create_vec()
     x.randomize()
 
@@ -87,9 +94,43 @@ def main(meshes):
     x = AAinv * bb
 
     niters = len(AAinv.residuals) - 1
-    size = V.dim() + Q.dim()
+    size = sum(xi.size() for xi in x)
     
     return size, niters
+
+
+def cond_solve((AA, bb, BB)):
+    '''Solve CGN to get the estimate of condition number'''
+    x = AA.create_vec()
+    x.randomize()
+
+    AAinv = CGN(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=1500, show=2)
+
+    # Compute solution
+    x = AAinv * bb
+
+    niters = len(AAinv.residuals) - 1
+    size = sum(xi.size() for xi in x)
+
+    lmin, lmax = np.sort(np.abs(AAinv.eigenvalue_estimates()))[[0, -1]]
+    cond = sqrt(lmax/lmin)
+    
+    return size, cond
+
+
+def compute_hierarchy(mesh_init, n, nlevels):
+    '''
+    The mesh where we want to solve is n. Here we compute previous
+    levels for setting up multrid. nlevels in total.
+    '''
+    assert nlevels > 0
+
+    if nlevels == 1:
+        mesh = mesh_init(*(n, )*dim)
+        # NOTE: !(EmbeddedMesh <:  Mesh)
+        return [mesh]
+
+    return compute_hierarchy(mesh_init, n, 1) + compute_hierarchy(mesh_init, n/2, nlevels-1)
 
 # --------------------------------------------------------------------
 
@@ -104,33 +145,26 @@ if __name__ == '__main__':
                         default=4)
     parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
                         default=4)
-
+    parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
+                        default='iters', choices=['iters', 'cond'])
+    parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
+                        default='MG', choices=['eig', 'mg'])
+    
     args = parser.parse_args()
 
     dim = args.D
     Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
+
+    main = iter_solve if args.Q == 'iters' else cond_solve
     
-    def compute_hierarchy(n, nlevels):
-        '''
-        The mesh where we want to solve is n. Here we compute previous
-        levels for setting up multrid. nlevels in total.
-        '''
-        assert nlevels > 0
-
-        if nlevels == 1:
-            mesh = Mesh(*(n, )*dim)
-            # NOTE: !(EmbeddedMesh <:  Mesh)
-            return [mesh]
-
-        return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
-
     history = []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
-        hierarchy = compute_hierarchy(n, nlevels=4)
+        hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
 
-        size, niters = main(hierarchy)
+        system = setup_system(args.B, hierarchy)
+        size, value = main(system)
 
-        msg = 'Problem size %d, current iters %d, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
-        history.append(niters)
+        msg = 'Problem size %d, current %s is %g, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (size, args.Q, value, history[::-1]))
+        history.append(value)
