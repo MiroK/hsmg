@@ -1,23 +1,40 @@
 from dolfin import Mesh, FunctionSpace, Cell
+from itertools import ifilter
 import numpy as np
 import operator
 
 
-def macro_dofmap(size, space, mesh):
+def macro_dofmap(size, space, mesh, bdry_dofs=None):
     '''
     For each VERTEX create a set of degrees of freedom which are located
-    on macro element of size around the VERTEX.
+    on macro element of size around the VERTEX. 
     '''
     assert size >= 1
     # Recurse on hierarchy
     if not isinstance(mesh, Mesh):
+        assert bdry_dofs is None or len(mesh) == len(bdry_dofs)
+        
         hierarchy = mesh
+        bdry_dofs_hierarchy = bdry_dofs if bdry_dofs is not None else [None]*len(hierarchy)
         return [macro_dofmap(size,
                              FunctionSpace(mesh, space.ufl_element()),
-                             mesh) for mesh in hierarchy]
+                             mesh,
+                             bdry_dofs)
+                for mesh, bdry_dofs in zip(hierarchy, bdry_dofs_hierarchy)]
 
-    return [np.fromiter(macro_element(space, vertex, size), dtype=int)
-            for vertex in range(mesh.num_vertices())]
+    # Base case of single mesh, possible with its bdry_dofs
+    if bdry_dofs is None:
+        return [np.fromiter(macro_element(space, vertex, size), dtype=int)
+                for vertex in range(mesh.num_vertices())]
+    # With bcs it can happen that the macroelement after removing bcs
+    # dofs is empty, in that case it does not enter the map
+    else:
+        bdry_dofs = set(bdry_dofs)
+        maybe = (macro_element(space, vertex, size) - bdry_dofs
+                 for vertex in range(mesh.num_vertices()))
+        # Remove bdry dofs from macro element, only not empy remaing
+        definitely = ifilter(bool, maybe)
+        return [np.fromiter(elm, dtype=int) for elm in definitely]
 
 
 def macro_element(V, vertex, level):

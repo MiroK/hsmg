@@ -66,18 +66,10 @@ class HsNormMGBase(block_base):
         # FunctionSpace(mesh_hierarchy[i+1], el)
         R = restriction.restriction_matrix(V, mesh_hierarchy)
 
-        # The function which given macro element size produces for each
-        # level a map dof -> macro dofs
-        macro_dofmaps = partial(macro_element.macro_dofmap,
-                               space=V,
-                               mesh=mesh_hierarchy)
-        # e.g. macro_dofmaps(1)  # of size 1
-
         if bdry is not None:
             # For each level keep track of boundary dofs
             bdry_dofs = restriction.Dirichlet_dofs(V, bdry, mesh_hierarchy)
 
-            # Finally assemble the matrices of finest level
             mesh = mesh_hierarchy[0]
             bdries = FacetFunction('size_t', mesh, 0)
             bdry.mark(bdries, 1)
@@ -85,8 +77,15 @@ class HsNormMGBase(block_base):
         else:
             bdry_dofs = None
             bcs_V = None
-                            
-        # FIXME: boundary conditions are built into the system, okay?
+
+        # The function which given macro element size produces for each
+        # level a map dof -> macro dofs
+        macro_dofmaps = partial(macro_element.macro_dofmap,
+                                space=V,
+                                mesh=mesh_hierarchy,
+                                bdry_dofs=bdry_dofs)
+        # e.g. macro_dofmaps(1)  # of size 1
+   
         L = inner(Constant(0), TestFunction(V))*dx
         A, _ = assemble_system(a, L, bcs_V)
         M, _ = assemble_system(m, L, bcs_V)
