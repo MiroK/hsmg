@@ -120,6 +120,8 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
                 Rm = self.R[j]
                 # Restrict and apply:
                 b_coarse = Rm.dot(bj)
+                b_coarse[~self.masks[j+1]] = 0.
+                
                 x_coarse = self.bpx_level(j+1, b_coarse)
                 # Prolong and add:
                 x_coarse = Rm.T.dot( x_coarse )
