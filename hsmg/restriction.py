@@ -13,8 +13,6 @@ import numpy as np
 
 def interpolation_mat((Vh, VH)):
     '''
-    Interpolation matrix taking Vh to VH.
-
     A function basis function \phi_H \in V_H has coefficients given as 
     Lh_k(\phi_H) where Lh_k is the k-th degree of freedom of Vh.
     '''
@@ -36,18 +34,10 @@ def interpolation_mat((Vh, VH)):
         warning('Unable to compute cell orientation. Falling back to 0.')
         get_orientation_h = lambda cell: 0
 
-    try:
-        Cell(VH.mesh(), 0).orientation()
-        get_orientation_H = lambda cell: cell.orientation()
-    except RuntimeError:
-        warning('Unable to compute cell orientation. Falling back to 0.')
-        get_orientation_H = lambda cell: 0
-
-    mesh = VH.mesh()
+    mesh = VH.mesh()  # Coarse
     tree = mesh.bounding_box_tree()
     limit = mesh.topology().size_global(mesh.topology().dim())
 
-    # Coarse dof coordinates
     Hdmap = VH.dofmap()
     elm_H = VH.element()
     
@@ -57,53 +47,59 @@ def interpolation_mat((Vh, VH)):
 
     # The is a dummy to be adjusted to represent basis functions of the coarse space
     basis_function = Function(VH)
+    # Direct access to underlying coefficient vector
     basis_function_coefs = as_backend_type(basis_function.vector()).vec().array
     # Rows
     visited_dofs = [False]*Vh.dim()
 
-    hdofs_x = Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))
-    # Column values
-    with petsc_serial_matrix(Vh, VH) as mat:
+    # Colliding cells with the coarse space
+    collisions = []
+    for dof_x in Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1)):
+        cs = tree.compute_entity_collisions(Point(*dof_x))
+        if any(c >= limit for c in cs):
+            warning('Some colliding cells not found')
+            cs = filter(lambda c: c < limit, cs)
+        collisions.append(cs)
+    # Estimate here the number of nnz in row
+    nnz = len(max(collisions, key=len))*elm_H.space_dimension()
+        
+    # We are going to build a prolongation matrix here, and then take transpose
+    with petsc_serial_matrix(Vh, VH, nnz=nnz) as mat:
 
         for cell_h in cells(Vh.mesh()):
             dofs_h = hdmap.cell_dofs(cell_h.index())
-            
-            dofs_x = hdofs_x[dofs_h]
-            for local_h, (dof_x, dof_h) in enumerate(zip(dofs_x, dofs_h)):
+
+            vertex_coordinates_h = cell_h.get_vertex_coordinates()
+            cell_orientation_h = get_orientation_h(cell_h)
+
+            for local_h, dof_h in enumerate(dofs_h):
 
                 if visited_dofs[dof_h]: continue
                 
                 visited_dofs[dof_h] = True
 
-                vertex_coordinates_h = cell_h.get_vertex_coordinates()
-                cell_orientation_h = get_orientation_h(cell_h)
-
-                # dof(local w.r.t to element) = basis_foo -> number
+                # dof(local w.r.t to element) of fine
                 degree_of_freedom = lambda f: elm_h.evaluate_dof(local_h,
                                                                  f,
                                                                  vertex_coordinates_h,
                                                                  cell_orientation_h,
                                                                  cell_h)
-                # Colliding cells
-                cs = tree.compute_entity_collisions(Point(*dof_x))
-
                 col_indices, dof_values = [], []
-                for c in cs:
+                for c in collisions[dof_h]:
                     dofs_H = Hdmap.cell_dofs(c)
                     
-                    # Fine indices = columns
-                    for local_H, dof_H in enumerate(dofs_H):
+                    # coarse indices = columns
+                    for dof_H in dofs_H:
                         if dof_H in col_indices: continue
 
-                        # basis_function of dof_H
+                        # Set as basis_function of dof_H
                         basis_function_coefs[dof_H] = 1.
 
                         col_indices.append(dof_H)
-
                         # Evalueate coarse basis foo at fine dofs
                         dof_value = degree_of_freedom(basis_function)
                         dof_values.append(dof_value)
-
+                        # Reset for next round
                         basis_function_coefs[dof_H] = 0.
 
                 # Can fill the matrix row
@@ -111,7 +107,6 @@ def interpolation_mat((Vh, VH)):
                 dof_values = np.array(dof_values)
                 
                 mat.setValues([dof_h], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
-
     # Transpose
     matT = type(mat)()
     mat.transpose(matT)
