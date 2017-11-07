@@ -49,12 +49,12 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             else:
                 assert self.eta > 0.
             # Set patch-to-DOFs maps for each level:
-            if "size" not in self.mg_params.keys():
-                self.size = 1
+            if "macro_size" not in self.mg_params.keys():
+                self.macro_size = 1
             else:
-                assert self.size >= 1
+                assert self.macro_size >= 1
 
-            self.macro_dms = macro_dofmap(self.size)
+            self.macro_dms = macro_dofmap(self.macro_size)
             assert len(self.macro_dms) == self.J
             # Set up matrices:
             for Rm in self.R:
