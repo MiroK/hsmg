@@ -133,7 +133,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             M = self.Ms[-1].todense()[np.ix_(mask,mask)]
             lam, U = la.eigh( A, b=M, type=1)
             U = np.asarray(U)
-            self.Hsinv_coarse = np.dot(lam**(-self.s) * U, U.T)
+            self.Hsinv_coarse = np.dot(U * lam**(-self.s), U.T)
 
         def coarse_solve(self, bj):
             '''Solve exactly on coarsest level of mesh hierarchy.'''
