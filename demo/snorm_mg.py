@@ -22,7 +22,7 @@ def main(hierarchy, s):
     
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
-                 'eta': 0.4}
+                 'eta': 1.0}
     # FIXME, bdry = None does not work at the moment
     bdry = None
     B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  

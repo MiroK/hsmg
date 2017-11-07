@@ -182,15 +182,17 @@ class HSAS(object):
         self.eta = eta
         # Go through each patch:
         B = sp.lil_matrix( A.shape, dtype=float )
+        Al = sp.lil_matrix(A)
+        Ml = sp.lil_matrix(M)
         for dofs in dms:
             # Local matrices:
-            Aloc = A[dofs][:,dofs].todense()
-            Mloc = M[dofs][:,dofs].todense()
+            Aloc = Al[np.ix_(dofs,dofs)].todense()
+            Mloc = Ml[np.ix_(dofs,dofs)].todense()
             # solve local eigenvalue problem:
             lam, Uloc = la.eigh(Aloc, b=Mloc, type=1)
             Uloc = np.asarray( Uloc )
             # Insert appropriately:
-            B[np.ix_(dofs,dofs)] += np.dot(lam**(-s) * Uloc, Uloc.T)
+            B[np.ix_(dofs,dofs)] += np.dot( Uloc * (lam**(-s)), Uloc.T)
         # Set matrix:
         self.B = sp.csr_matrix(B)
 
