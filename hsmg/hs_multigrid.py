@@ -180,6 +180,7 @@ class HSAS(object):
         '''
         self.mask = mask
         self.eta = eta
+        print("Eta = {}".format(eta))
         # Go through each patch:
         B = sp.lil_matrix( A.shape, dtype=float )
         for dofs in dms:
