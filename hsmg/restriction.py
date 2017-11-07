@@ -73,7 +73,7 @@ def interpolation_mat((Vh, VH)):
     for cell_H in cells(mesh_H):
         # Surrounding cells
         patch = cell_patch(mesh_H, cell_H)
-        print cell_H.index(), [c.index() for c in patch]
+        # print cell_H.index(), [c.index() for c in patch]
         # Get all their vertices. This is okay becasue path init connectivity
         # in mesh
         xs = set(sum((c.entities(0).tolist() for c in patch), []))
@@ -81,7 +81,7 @@ def interpolation_mat((Vh, VH)):
         # Colliding cells
         cs = set()
         for x in xs:
-            print x,
+            # print x,
             cs.update(set(tree.compute_entity_collisions(Point(*x))))
             cs
         # Remove (and signal) when cell not found
@@ -89,8 +89,8 @@ def interpolation_mat((Vh, VH)):
         if missing:
             warning('Some colliding cells are off')
         cs.difference_update(missing)
-        print '>>>', cs
-        print
+        # print '>>>', cs
+        # print
         colliding_cells_h.append(cs)
         
         nnz = max(nnz, len(cs)*dofs_per_fine_element)
@@ -150,7 +150,7 @@ def interpolation_mat((Vh, VH)):
                 col_indices = np.array(col_indices, dtype='int32')
                 dof_values = np.array(dof_values)
 
-                print dof_H, cs#Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
+                # print dof_H, cs#Vh.tabulate_dof_coordinates().reshape((Vh.dim(), -1))[col_indices], dof_values
                 
                 mat.setValues([dof_H], col_indices, dof_values, PETSc.InsertMode.INSERT_VALUES)
                 # Revert. Sot that setting to 1 will make ti a correct basis foo
