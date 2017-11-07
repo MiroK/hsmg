@@ -18,7 +18,7 @@ from block.algebraic.petsc import AMG
 from hsmg import HsNormMG
 
 from dolfin import *
-
+import numpy as np
 
 def setup_system(precond, meshes):
     '''Solver'''

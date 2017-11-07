@@ -24,12 +24,40 @@ from block import block_mat, block_assemble
 from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
-from hsmg import Hs0NormMG, HsNormMG
+from hsmg import HsNormMG
 
 from dolfin import *
 
+# Interface between interior and exteriorn domains
+gamma = {2: 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)',
+         3: 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'}
+    
+# Marking interior domains
+interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
+            3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
 
-def main(hierarchy, subdomains, beta=1E-10):
+
+def compute_hierarchy(mesh_init, bdry, n, nlevels):
+    '''
+    The mesh where we want to solve is n. Here we compute previous
+    levels for setting up multrid. nlevels in total.
+    '''
+    assert nlevels > 0
+
+    if nlevels == 1:
+        mesh = mesh_init(*(n, )*dim)
+
+        markers = FacetFunction('size_t', mesh, 0)
+        bdry.mark(markers, 1)
+        assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
+        # NOTE: !(EmbeddedMesh <:  Mesh)
+        return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim)]
+
+    return compute_hierarchy(mesh_init, bdry, n, 1) + \
+        compute_hierarchy(mesh_init, bdry, n/2, nlevels-1)
+
+
+def setup_system(precond, hierarchy, subdomains, beta=1E-10):
     '''Solver'''
     kappa_e = Constant(1)
     kappa_i = Constant(1)
@@ -81,42 +109,36 @@ def main(hierarchy, subdomains, beta=1E-10):
     # Block of Riesz preconditioner
     B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
     B11 = InvDiag(assemble(inner(u, v)*dX))
-    # B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
-
-    # Alternative B22 block:
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0,
-                 'size': 1}
 
     # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
     # boundary conditions are set
-    bdry = None
-    B22alt = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
+    if precond == 'eig':
+        B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+    else:
+        # Alternative B22 block:
+        mg_params = {'macro_size': 1,
+                     'nlevels': len(hierarchy),
+                     'eta': 1.0,
+                     'size': 1}
+
+        bdry = None
+        B22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],
-                    [0, 0, B22alt]])
+                    [0, 0, B22]])
 
-    x = AA.create_vec()
-    x.randomize()
-    AAinv = MinRes(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=500, show=2)
-
-    # Compute solution
-    x = AAinv * bb
-
-    niters = len(AAinv.residuals) - 1
-    size = V.dim() + Q.dim()
-    
-    return size, niters
+    return AA, bb, BB
     
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
     import argparse
     import numpy as np
+    from babuska import iter_solve, cond_solve
 
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
                          default=2)
@@ -124,46 +146,27 @@ if __name__ == '__main__':
                         default=4)
     parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
                         default=4)
+    parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
+                        default='iters', choices=['iters', 'cond'])
+    parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
+                        default='MG', choices=['eig', 'mg'])
 
     args = parser.parse_args()
 
     dim = args.D
     Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
 
+    main = iter_solve if args.Q == 'iters' else cond_solve
+
     # Interface between interior and exteriorn domains
-    gamma = {2: 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)',
-             3: 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'}
-    
     gamma = CompiledSubDomain(gamma[dim])
-
     # Marking interior domains
-    interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
-                3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
     interior = CompiledSubDomain(interior[dim])
-
-    
-    def compute_hierarchy(n, nlevels):
-        '''
-        The mesh where we want to solve is n. Here we compute previous
-        levels for setting up multrid. nlevels in total.
-        '''
-        assert nlevels > 0
-
-        if nlevels == 1:
-            mesh = Mesh(*(n, )*dim)
-
-            markers = FacetFunction('size_t', mesh, 0)
-            gamma.mark(markers, 1)
-            assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
-            # NOTE: !(EmbeddedMesh <:  Mesh)
-            return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim)]
-
-        return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
 
     history = []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
-        hierarchy = compute_hierarchy(n, nlevels=4)
+        hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=4)
 
         mesh = Mesh(*(n, )*dim)
         # Setup tags of interior domains 
@@ -181,8 +184,10 @@ if __name__ == '__main__':
         
         assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
 
-        size, niters = main(hierarchy, subdomains)
+        system = setup_system(args.B, hierarchy, subdomains)
 
-        msg = 'Problem size %d, current iters %d, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, history))
-        history.append(niters)
+        size, value = main(system)
+
+        msg = 'Problem size %d, current %s is %g, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (size, args.Q, value, history[::-1]))
+        history.append(value)
