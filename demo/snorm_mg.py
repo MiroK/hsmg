@@ -20,7 +20,7 @@ def main(hierarchy, s):
     
     A = H1_L2_InterpolationNorm(V).get_s_norm(s=s, as_type=PETScMatrix)
     
-    mg_params = {'macro_size': 5,
+    mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 1.0}
     # FIXME, bdry = None does not work at the moment
