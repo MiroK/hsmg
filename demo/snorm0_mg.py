@@ -61,19 +61,22 @@ if __name__ == '__main__':
     import argparse
     import re
 
+    D_options = ['1', '2',  # Xd in Xd
+                 '12', '13', '23',  # Xd in Yd no intersect
+                 '-12', '-13', '-23']  # Xd in Yd isect
+    
     parser = argparse.ArgumentParser()
+    
     parser.add_argument('s', help='Exponent of the operator or start:step:end')
     parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
-                        default='1', choices=['1', '2', '3',         # Xd in Xd
-                                              '12', '13', '23',      # Xd in Yd no isect
-                                              '-12', '-13', '-23'])  # Xd in Yd isect
+                        default='1', choices=['all'] + D_options)  # Xd in Yd loop
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     parser.add_argument('-log', type=str, help='Path to file for storing results',
-                        default='')
-
+                         default='')
     args = parser.parse_args()
 
+    # Fractionality series
     try:
         s_values = [float(args.s)]
     except ValueError:
@@ -81,20 +84,26 @@ if __name__ == '__main__':
         start, step, end = map(float, re.compile(r'[+-]?\d+(?:\.\d+)?').findall(args.s))
         # FIXME: map needed bacause of silly types in fenicsii
         s_values = map(float, np.arange(start, end+step, step))
-        
-    for s in s_values:
-        print '\t\033[1;37;34m%s\033[0m' % s
-        sizes, history = [], []
-        for n in [2**i for i in range(5, 5+args.n)]:
-            hierarchy = compute_hierarchy(args.D, n, nlevels=4)
 
-            size, niters, cond = main(hierarchy, s=s)
+    # Domain series
+    domains = D_options if args.D == 'all' else [args.D]
 
-            msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-            print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
-            history.append((niters, cond))
-            sizes.append((size, ))
-        # Change s make header aware of that
-        args.s = s
-        args.log and log_results(args, sizes, history, name=basename(__file__)
-                                 fmt='%d %d %g')
+    for D in domains:
+        print '\t\033[1;37;32m%s\033[0m' % D
+        for s in s_values:
+            print '\t\t\033[1;37;34m%s\033[0m' % s
+            history, sizes = [], []
+            for n in [2**i for i in range(5, 5+args.n)]:
+                hierarchy = compute_hierarchy(D, n, nlevels=4)
+
+                size, niters, cond = main(hierarchy, s=s)
+
+                msg = 'Problem size %d, current iters %d, cond %g, previous %r'
+                print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
+                history.append((niters, cond))
+                sizes.append((size, ))
+            # Change make header aware properly
+            args.s = s
+            args.D = D
+            args.log and log_results(args, sizes, history, name=basename(__file__),
+                                     fmt='%d %d %g')
