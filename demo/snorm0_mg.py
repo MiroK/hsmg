@@ -57,10 +57,12 @@ def main(hierarchy, s):
 
 if __name__ == '__main__':
     from common import log_results, compute_hierarchy
+    from os.path import basename
     import argparse
+    import re
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('s', type=float, help='Exponent of the operator')
+    parser.add_argument('s', help='Exponent of the operator or start:step:end')
     parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
                         default='1', choices=['1', '2', '3',         # Xd in Xd
                                               '12', '13', '23',      # Xd in Yd no isect
@@ -72,17 +74,27 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    dim = args.D
-
-    sizes, history = [], []
-    for n in [2**i for i in range(5, 5+args.n)]:
-        hierarchy = compute_hierarchy(dim, n, nlevels=4)
+    try:
+        s_values = [float(args.s)]
+    except ValueError:
+        # Parse linspace
+        start, step, end = map(float, re.compile(r'[+-]?\d+(?:\.\d+)?').findall(args.s))
+        # FIXME: map needed bacause of silly types in fenicsii
+        s_values = map(float, np.arange(start, end+step, step))
         
-        size, niters, cond = main(hierarchy, s=args.s)
+    for s in s_values:
+        print '\t\033[1;37;34m%s\033[0m' % s
+        sizes, history = [], []
+        for n in [2**i for i in range(5, 5+args.n)]:
+            hierarchy = compute_hierarchy(args.D, n, nlevels=4)
 
-        msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
-        history.append((niters, cond))
-        sizes.append((size, ))
+            size, niters, cond = main(hierarchy, s=s)
 
-    args.log and log_results(args, sizes, history, fmt='%d %d %g')
+            msg = 'Problem size %d, current iters %d, cond %g, previous %r'
+            print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
+            history.append((niters, cond))
+            sizes.append((size, ))
+        # Change s make header aware of that
+        args.s = s
+        args.log and log_results(args, sizes, history, name=basename(__file__)
+                                 fmt='%d %d %g')

@@ -4,11 +4,10 @@ from dolfin import plot
 
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from block.iterative import MinRes, CGN
-from os.path import basename
 import numpy as np
 
 
-def log_results(args, size, data, fmt='%.18e'):
+def log_results(args, size, data, name='', fmt='%.18e'):
     '''Cols of size -> result'''
     nrows = len(size)
     assert nrows == len(data)
@@ -19,9 +18,11 @@ def log_results(args, size, data, fmt='%.18e'):
         table[row, :offset] = s
         table[row, offset:] = d
 
-    header = ', '.join([basename(__file__)] + map(lambda (k, v): '%s: %s' % (k, str(v)),
-                                                  args.__dict__.iteritems()))
-    np.savetxt(args.log, table, fmt=fmt, header=header)
+    header = ', '.join([name] + map(lambda (k, v): '%s: %s' % (k, str(v)),
+                                    args.__dict__.iteritems()))
+    
+    with open(args.log, 'a') as handle:
+        np.savetxt(handle, table, fmt=fmt, header=header)
 
 
 def iter_solve((AA, bb, BB)):
