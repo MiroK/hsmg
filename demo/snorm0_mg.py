@@ -56,39 +56,33 @@ def main(hierarchy, s):
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
+    from common import log_results, compute_hierarchy
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument('s', type=float, help='Exponent of the operator')
-    parser.add_argument('-D', type=int, help='Solve 1d-1d, 2d-2d, 3d-3d',
-                        default=1)
+    parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
+                        default='1', choices=['1', '2', '3',         # Xd in Xd
+                                              '12', '13', '23',      # Xd in Yd no isect
+                                              '-12', '-13', '-23'])  # Xd in Yd isect
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
+    parser.add_argument('-log', type=str, help='Path to file for storing results',
+                        default='')
+
     args = parser.parse_args()
 
     dim = args.D
 
-    # Embedding mesh
-    Mesh = {1: UnitIntervalMesh, 2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
-
-    def compute_hierarchy(n, nlevels):
-        '''
-        The mesh where we want to solve is n. Here we compute previous
-        levels for setting up multrid. nlevels in total.
-        '''
-        assert nlevels > 0
-
-        if nlevels == 1: return [Mesh(*(n, )*dim)]
-
-        return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
-
-    history = []
+    sizes, history = [], []
     for n in [2**i for i in range(5, 5+args.n)]:
-        hierarchy = compute_hierarchy(n, nlevels=4)
+        hierarchy = compute_hierarchy(dim, n, nlevels=4)
         
         size, niters, cond = main(hierarchy, s=args.s)
 
         msg = 'Problem size %d, current iters %d, cond %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
         history.append((niters, cond))
+        sizes.append((size, ))
 
+    args.log and log_results(args, sizes, history, fmt='%d %d %g')

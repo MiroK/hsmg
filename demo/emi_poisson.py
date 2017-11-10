@@ -136,7 +136,7 @@ def setup_system(precond, hierarchy, subdomains, beta=1E-10):
 if __name__ == '__main__':
     import argparse
     import numpy as np
-    from babuska import iter_solve, cond_solve
+    from common import log_results, iter_solve, cond_solve
 
     
     parser = argparse.ArgumentParser()
@@ -150,6 +150,8 @@ if __name__ == '__main__':
                         default='iters', choices=['iters', 'cond'])
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
                         default='MG', choices=['eig', 'mg'])
+    parser.add_argument('-log', type=str, help='Path to file for storing results',
+                        default='')
 
     args = parser.parse_args()
 
@@ -163,7 +165,7 @@ if __name__ == '__main__':
     # Marking interior domains
     interior = CompiledSubDomain(interior[dim])
 
-    history = []
+    sizes, history = [], []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=4)
@@ -189,5 +191,8 @@ if __name__ == '__main__':
         size, value = main(system)
 
         msg = 'Problem size %d, current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, args.Q, value, history[::-1]))
-        history.append(value)
+        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
+        history.append((value, ))
+        sizes.append(size)
+    # S, V, Q and cond or iter
+    args.log and log_results(args, sizes, history, fmt='%d %d %d %g')
