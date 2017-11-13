@@ -34,7 +34,7 @@ def main(hierarchy, s):
 
     # Rhs
     v = TestFunction(V)
-    f = Expression('sin(k*pi*x[0])', k=1, degree=1)
+    f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     b = assemble(inner(f, v)*dx)
     # b = Function(V).vector()
 

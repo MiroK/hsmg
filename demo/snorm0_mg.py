@@ -36,8 +36,12 @@ def main(hierarchy, s):
     x.set_local(xrand)
     bcs.apply(x)
     
-    # Zero
-    b = Function(V).vector()
+    # Rhs
+    v = TestFunction(V)
+    f = Expression('sin(k*pi*x[0])', k=1, degree=4)
+    b = assemble(inner(f, v)*dx)
+    # b = Function(V).vector()
+    
     Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
 
     # Compute solution
