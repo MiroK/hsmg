@@ -11,7 +11,7 @@ from dolfin import *
 import numpy as np
 
 
-def main(hierarchy, s):
+def generator(hierarchy):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
@@ -20,47 +20,59 @@ def main(hierarchy, s):
     bdry = DomainBoundary()
     
     bcs = DirichletBC(V, Constant(0), bdry)
-    A = H10_L2_InterpolationNorm(V, bcs=bcs).get_s_norm(s=s, as_type=PETScMatrix)
+    As = H10_L2_InterpolationNorm(V, bcs=bcs)
+  
     
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 1.0}
-    
-    # FIXME, bdry = None does not work at the moment
-    B = Hs0NormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
 
-    x = Function(V).vector()
-    # Init guess is random
-    xrand = np.random.random(x.local_size())
-    xrand -= xrand.sum()/x.local_size()
-    x.set_local(xrand)
-    bcs.apply(x)
-    
-    # Rhs
-    v = TestFunction(V)
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
-    b = assemble(inner(f, v)*dx)
-    # b = Function(V).vector()
-    
-    Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
+    # Wait for s to be send in
+    while True:
+        s = yield
 
-    # Compute solution
-    x = Ainv * b
+        A = As.get_s_norm(s=s, as_type=PETScMatrix)
+        B = Hs0NormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
 
-    # plot(Function(V, x), interactive=True)
+        x = Function(V).vector()
+        # Init guess is random
+        xrand = np.random.random(x.local_size())
+        xrand -= xrand.sum()/x.local_size()
+        x.set_local(xrand)
+        bcs.apply(x)
     
-    niters = len(Ainv.residuals) - 1
-    size = V.dim()
+        # Rhs
+        v = TestFunction(V)
+        b = assemble(inner(f, v)*dx)
+        # b = Function(V).vector()
+    
+        Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
 
-    lmin, lmax = np.sort(np.abs(Ainv.eigenvalue_estimates()))[[0, -1]]
-    cond = lmax/lmin
+        # Compute solution
+        x = Ainv * b
+
+        niters = len(Ainv.residuals) - 1
+        size = V.dim()
+
+        lmin, lmax = np.sort(np.abs(Ainv.eigenvalue_estimates()))[[0, -1]]
+        cond = lmax/lmin
     
-    return size, niters, cond
+        yield (size, niters, cond)
+
+        
+def compute(gen, s):
+    '''Trigger computations for given s'''
+    gen.next()
+    return gen.send(s)
+
 
 # --------------------------------------------------------------------
 
+
 if __name__ == '__main__':
     from common import log_results, compute_hierarchy
+    from collections import defaultdict
     from os.path import basename
     import argparse
     import re
@@ -94,20 +106,23 @@ if __name__ == '__main__':
 
     for D in domains:
         print '\t\033[1;37;32m%s\033[0m' % D
-        for s in s_values:
-            print '\t\t\033[1;37;34m%s\033[0m' % s
-            history, sizes = [], []
-            for n in [2**i for i in range(5, 5+args.n)]:
-                hierarchy = compute_hierarchy(D, n, nlevels=4)
+        results = defaultdict(list)
+        sizes = []
+        for n in [2**i for i in range(5, 5+args.n)]:
+            print '\t\t\033[1;37;31m%s\033[0m' % n
+            hierarchy = compute_hierarchy(D, n, nlevels=4)
+            gen = generator(hierarchy)
 
-                size, niters, cond = main(hierarchy, s=s)
+            for s in s_values:
+                size, niters, cond = compute(gen, s=s)
 
-                msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-                print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
-                history.append((niters, cond))
-                sizes.append((size, ))
+                msg = '@s = %g, Problem size %d, current iters %d, cond %.2f, previous %r'
+                print '\033[1;37;34m%s\033[0m' % (msg % (s, size, niters, cond, results[s][::-1]))
+                results[s].append((niters, cond))
+            sizes.append((size, ))
+
+            # Log after each n in case of kill signal for large n
             # Change make header aware properly
-            args.s = s
-            args.D = D
-            args.log and log_results(args, sizes, history, name=basename(__file__),
-                                     fmt='%d %d %g')
+            if args.log:
+                args.D = D
+                log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')

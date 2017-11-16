@@ -139,4 +139,4 @@ if __name__ == '__main__':
         history.append((value, ))
         sizes.append(size)
     # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, history, fmt='%d %d %g')
+    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %g')

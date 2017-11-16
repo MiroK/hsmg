@@ -5,24 +5,39 @@ from dolfin import plot
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from block.iterative import MinRes, CGN
 import numpy as np
+import os
 
 
-def log_results(args, size, data, name='', fmt='%.18e'):
+def log_results(args, size, results, name='', fmt='%.18e'):
     '''Cols of size -> result'''
+    
     nrows = len(size)
-    assert nrows == len(data)
+    assert all(nrows == len(results[s]) for s in results)
     offset = len(size[0])
-    
-    table = np.zeros((nrows, offset + len(data[0])))
-    for row, (s, d) in enumerate(zip(size, data)):
-        table[row, :offset] = s
-        table[row, offset:] = d
 
-    header = ', '.join([name] + map(lambda (k, v): '%s: %s' % (k, str(v)),
-                                    args.__dict__.iteritems()))
-    
-    with open(args.log, 'a') as handle:
-        np.savetxt(handle, table, fmt=fmt, header=header)
+    with open(args.log, 'w') as handle:
+        for fract in sorted(results.keys()):
+            data = results[fract]
+            
+            table = np.zeros((nrows, offset + len(data[0])))
+            for row, (s, d) in enumerate(zip(size, data)):
+                table[row, :offset] = s
+                table[row, offset:] = d
+
+            # snorm*
+            if 's' in args:
+                args.s = fract  # Instead of range
+            header = map(lambda (k, v): '%s: %s' % (k, str(v)), args.__dict__.iteritems())
+
+            # EMI
+            if 's' not in args:
+                header.append('%s: %s' % ('s', fract))
+            
+            header = ', '.join([name] + header)
+
+            np.savetxt(handle, table, fmt=fmt, header=header)
+
+    return args.log
 
 
 def iter_solve((AA, bb, BB)):
