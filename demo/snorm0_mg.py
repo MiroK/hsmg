@@ -7,11 +7,71 @@ from hsmg import Hs0NormMG
 
 from block.iterative import ConjGrad
 
+from petsc4py import PETSc
 from dolfin import *
 import numpy as np
 
 
-def generator(hierarchy):
+class H10_FAST(object):
+    '''
+    Compute H10 s norm using eigenpairs of continuous Lagrange 1 approx of 
+        
+        (u', v') = lambda * (u, v) on H10((0, 1))
+    '''
+    def __init__(self, V, bcs):
+        assert V.ufl_element().family() == 'Lagrange'
+        assert V.ufl_element().degree() == 1
+        assert V.ufl_cell() == interval
+
+        time = Timer('gevp')
+        time.start()
+        
+        bc = DirichletBC(V, Constant(0), 'on_boundary')
+
+        u, v = TrialFunction(V), TestFunction(V)
+        a = inner(grad(u), grad(v))*dx
+        m = inner(u, v)*dx
+        L = inner(Constant(0), v)*dx
+
+        A, _ = assemble_system(a, L, bc)
+        M, _ = assemble_system(m, L, bc)
+        A, M = A.array(), M.array()
+
+        n = V.dim()-1
+        k = np.arange(1, n)
+        h = V.mesh().hmin()
+    
+        y = np.cos(k*pi/n)
+        lmbda0 = (6./h**2)*(1.-y)/(2. + y)
+
+        xj = V.tabulate_dof_coordinates()
+
+        # Bc eigenvectors
+        U = np.zeros((n+1, n+1))
+        for i, dof in enumerate(bc.get_boundary_values().keys()):
+            u = np.zeros(V.dim())
+            u[dof] = 1.
+            U[i] = u
+            # Physical
+        for i, ki in enumerate(k, 2):
+            u = np.sin(ki*pi*xj)
+            u /= sqrt((2. + cos(ki*pi/(n)))/6.)
+            U[i] = u
+        print 'GEVP setup took %g s' % time.stop()
+            
+        lmbda = np.r_[1., 1., lmbda0]
+
+        self.W = M.dot(U.T)
+        self.lmbda = lmbda
+
+    def get_s_norm(self, s, as_type):
+        B = np.dot(self.W * self.lmbda**s, self.W.T)
+        
+        mat = PETSc.Mat().createDense(size=len(B), array=B)
+        return PETScMatrix(mat)
+
+    
+def generator(hierarchy, InterpolationNorm):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
@@ -20,7 +80,7 @@ def generator(hierarchy):
     bdry = DomainBoundary()
     
     bcs = DirichletBC(V, Constant(0), bdry)
-    As = H10_L2_InterpolationNorm(V, bcs=bcs)
+    As = InterpolationNorm(V, bcs=bcs)
   
     
     mg_params = {'macro_size': 1,
@@ -90,6 +150,8 @@ if __name__ == '__main__':
                         default=4)
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                          default='')
+    parser.add_argument('-fgevp', type=int, help='Use closed form eigenvalue solver to compute H^s norm (only D1)',
+                        default=0)
     args = parser.parse_args()
 
     # Fractionality series
@@ -104,20 +166,22 @@ if __name__ == '__main__':
     # Domain series
     domains = D_options if args.D == 'all' else [args.D]
 
+    InterpolationNorm = H10_FAST if (args.D == '1' and args.fgevp) else H10_L2_InterpolationNorm
+
     for D in domains:
         print '\t\033[1;37;32m%s\033[0m' % D
         results = defaultdict(list)
         sizes = []
-        for n in [2**i for i in range(5, 5+args.n)]:
-            print '\t\t\033[1;37;31m%s\033[0m' % n
+        for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
+            print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
             hierarchy = compute_hierarchy(D, n, nlevels=4)
-            gen = generator(hierarchy)
+            gen = generator(hierarchy, InterpolationNorm)
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)
 
-                msg = '@s = %g, Problem size %d, current iters %d, cond %.2f, previous %r'
-                print '\033[1;37;34m%s\033[0m' % (msg % (s, size, niters, cond, results[s][::-1]))
+                msg = '@s = %g, Current iters %d, cond %.2f, previous %r'
+                print '\033[1;37;34m%s\033[0m' % (msg % (s, niters, cond, results[s][::-1]))
                 results[s].append((niters, cond))
             sizes.append((size, ))
 
