@@ -4,7 +4,7 @@ from fenics_ii.utils.norms import H10_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from hsmg import Hs0NormMG
-
+from hsmg.utils import to_csr_matrix
 from block.iterative import ConjGrad
 
 from petsc4py import PETSc
@@ -28,15 +28,6 @@ class H10_FAST(object):
         
         bc = DirichletBC(V, Constant(0), 'on_boundary')
 
-        u, v = TrialFunction(V), TestFunction(V)
-        a = inner(grad(u), grad(v))*dx
-        m = inner(u, v)*dx
-        L = inner(Constant(0), v)*dx
-
-        A, _ = assemble_system(a, L, bc)
-        M, _ = assemble_system(m, L, bc)
-        A, M = A.array(), M.array()
-
         n = V.dim()-1
         k = np.arange(1, n)
         h = V.mesh().hmin()
@@ -49,19 +40,22 @@ class H10_FAST(object):
         # Bc eigenvectors
         U = np.zeros((n+1, n+1))
         for i, dof in enumerate(bc.get_boundary_values().keys()):
-            u = np.zeros(V.dim())
-            u[dof] = 1.
-            U[i] = u
-            # Physical
+            U[i, dof] = 1.
+            
+        # Physical, each row is M*u    
         for i, ki in enumerate(k, 2):
             u = np.sin(ki*pi*xj)
-            u /= sqrt((2. + cos(ki*pi/(n)))/6.)
+            # Normalize eigenvector u. M*u = 1
+            u /= sqrt((2. + cos(ki*pi/n))/6.)
+            # We want M*u for the norm. Since u is eigenvector we are
+            # left with ...
+            u *= h/3.*(2. + cos(ki*pi/n))
             U[i] = u
         print 'GEVP setup took %g s' % time.stop()
-            
+
         lmbda = np.r_[1., 1., lmbda0]
 
-        self.W = M.dot(U.T)
+        self.W = U.T
         self.lmbda = lmbda
 
     def get_s_norm(self, s, as_type):
