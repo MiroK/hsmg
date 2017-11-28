@@ -4,6 +4,7 @@ from fenics_ii.utils.norms import H10_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from hsmg import Hs0NormMG
+from hsmg.hsquad import BPDirichletLaplacian
 from hsmg.utils import to_csr_matrix
 from block.iterative import ConjGrad
 
@@ -11,6 +12,9 @@ from petsc4py import PETSc
 from dolfin import *
 import numpy as np
 
+
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
 
 class H10_FAST(object):
     '''
@@ -65,9 +69,9 @@ class H10_FAST(object):
         return PETScMatrix(mat)
 
     
-def generator(hierarchy, InterpolationNorm):
+def generator(hierarchy, InterpolationNorm, preconditioner):
     '''
-    Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
+    Solve Ax = b where A is the eigenvalue representation of (-Delta)^s
     '''
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
@@ -76,10 +80,15 @@ def generator(hierarchy, InterpolationNorm):
     bcs = DirichletBC(V, Constant(0), bdry)
     As = InterpolationNorm(V, bcs=bcs)
   
-    
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0}
+    if preconditioner == 'MG':
+        mg_params = {'macro_size': 1,
+                     'nlevels': len(hierarchy),
+                     'eta': 1.0}
+
+        make_B = lambda s: Hs0NormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
+    else:
+        bp_params = {'k': lambda size, h: 1/4. }
+        make_B = lambda s: BPDirichletLaplacian(V, bcs, s, bp_params)
 
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     # Wait for s to be send in
@@ -87,7 +96,7 @@ def generator(hierarchy, InterpolationNorm):
         s = yield
 
         A = As.get_s_norm(s=s, as_type=PETScMatrix)
-        B = Hs0NormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
+        B = make_B(s)
 
         x = Function(V).vector()
         # Init guess is random
@@ -99,7 +108,7 @@ def generator(hierarchy, InterpolationNorm):
         # Rhs
         v = TestFunction(V)
         b = assemble(inner(f, v)*dx)
-        # b = Function(V).vector()
+        bcs.apply(b)
     
         Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
 
@@ -109,7 +118,10 @@ def generator(hierarchy, InterpolationNorm):
         niters = len(Ainv.residuals) - 1
         size = V.dim()
 
-        lmin, lmax = np.sort(np.abs(Ainv.eigenvalue_estimates()))[[0, -1]]
+        eigws = np.abs(Ainv.eigenvalue_estimates())
+        ax.plot(eigws, label='%d' % V.dim(), linestyle='none', marker='x')
+        
+        lmin, lmax = np.sort(eigws)[[0, -1]]
         cond = lmax/lmin
     
         yield (size, niters, cond)
@@ -140,6 +152,8 @@ if __name__ == '__main__':
     parser.add_argument('s', help='Exponent of the operator or start:step:end')
     parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
                         default='1', choices=['all'] + D_options)  # Xd in Yd loop
+    parser.add_argument('-B', type=str, help='Preconditioner',
+                        choices=['MG', 'BP'], default='MG')
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     parser.add_argument('-log', type=str, help='Path to file for storing results',
@@ -160,6 +174,7 @@ if __name__ == '__main__':
     # Domain series
     domains = D_options if args.D == 'all' else [args.D]
 
+    preconditioner = args.B
     InterpolationNorm = H10_FAST if (args.D == '1' and args.fgevp) else H10_L2_InterpolationNorm
 
     for D in domains:
@@ -169,7 +184,7 @@ if __name__ == '__main__':
         for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
             hierarchy = compute_hierarchy(D, n, nlevels=4)
-            gen = generator(hierarchy, InterpolationNorm)
+            gen = generator(hierarchy, InterpolationNorm, preconditioner)
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)
@@ -184,3 +199,6 @@ if __name__ == '__main__':
             if args.log:
                 args.D = D
                 log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')
+
+        plt.legend(loc='best')
+        plt.show()
