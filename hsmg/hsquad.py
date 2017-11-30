@@ -7,15 +7,9 @@ from dolfin import Vector, sqrt, MPI, solve
 from block.object_pool import vec_pool
 from block.block_base import block_base
 
-import math
-
-import macro_element
-import hs_multigrid
-import restriction
-import hierarchy
-import utils
-
+from math import sin, pi, sqrt, exp, ceil
 import numpy as np
+
 
 class BPOperatorBase(block_base):
     '''
@@ -40,7 +34,7 @@ class BPOperatorBase(block_base):
         # The shifted operator
         self.identity = inner(u, v)*dx
         self.operator = L
-        self.shifted_operator = lambda shift: Constant(math.exp(2*shift))*self.operator + self.identity
+        self.shifted_operator = lambda shift: self.operator + Constant(exp(-2.*shift))*self.identity
 
         self.dummy_rhs = b     # For use with assemble system
         self.bcs = bcs         # To apply when shift is assembled?
@@ -59,7 +53,7 @@ class BPOperatorBase(block_base):
 
         if isinstance(bcs, DirichletBC):
             return bcs
-        
+        #
         if isinstance(bcs, (CompiledSubDomain, SubDomain)):
             return DirichletBC(V, Constant(0), bcs)
 
@@ -92,11 +86,11 @@ class BPOperatorBase(block_base):
 
         k = self.params['k'](self.size, self.mesh_size)
 
-        M = int(math.ceil(math.pi**2/(4.*beta*k**2)))
-        N = int(math.ceil(math.pi**2/(4*(1 - beta)*k**2)))
+        M = int(ceil(pi**2/(4.*beta*k**2)))
+        N = int(ceil(pi**2/(4*(1 - beta)*k**2)))
 
         count = 0
-
+        e0 = None
         for l in range(-M, N+1):
             count += 1
             yl = l*k
@@ -109,13 +103,18 @@ class BPOperatorBase(block_base):
             #print 'factor', exp(2*yl*beta),
             #print 'shift', exp(2*yl)
             
-            x.axpy(math.exp(2*beta*yl), xk)
-        x *= 2*k*math.sin(math.pi*beta)/math.pi
+            x.axpy(exp(2*yl*(beta - 1.)), xk)
+        print count
+        x *= 2*k*sin(pi*beta)/pi
+        print '#solves', count
         return x
 
     @vec_pool
     def create_vec(self, dim=1):
         return Vector(None, self.size)
+
+    
+# Specializations
 
 
 class BPDirichletLaplacian(BPOperatorBase):
@@ -130,6 +129,20 @@ class BPDirichletLaplacian(BPOperatorBase):
         a = inner(grad(u), grad(v))*dx            
         
         BPOperatorBase.__init__(self, a, bcs, s, params)
+
+        
+class BPHelmholtz(BPOperatorBase):
+    '''
+    TODO
+    '''
+    def __init__(self, V, bcs, s, params):
+
+        u, v = TrialFunction(V), TestFunction(V)
+        h = CellSize(V.mesh())
+        a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+        
+        BPOperatorBase.__init__(self, a, bcs, s, params)
+
         
 # -------------------------------------------------------------------
 
@@ -137,34 +150,44 @@ if __name__ == '__main__':
     from dolfin import UnitIntervalMesh, FunctionSpace, Expression, assemble
     from dolfin import plot, interactive, Function, interpolate, errornorm, ln
 
-    s = 0.5
+    s = 0.75
 
-    k = 1.
-    f = Expression('sin(k*pi*x[0])', k=k, degree=4)
-    u_exact = Expression('sin(k*pi*x[0])/pow(k*pi, 2*s)', s=s, k=k, degree=4)
-
+    if False:
+        k = 1.
+        f = Expression('sin(k*pi*x[0])', k=k, degree=4)
+        u_exact = Expression('sin(k*pi*x[0])/pow(k*pi, 2*s)', s=s, k=k, degree=4)
+        get_bcs = lambda V: DirichletBC(V, Constant(0), 'on_boundary')
+        get_B = BPDirichletLaplacian
+    else:
+        k = 1.
+        f = Expression('cos(k*pi*x[0])', k=k, degree=4)
+        u_exact = Expression('cos(k*pi*x[0])/pow(pow(k*pi, 2) + 1, s)', s=s, k=k, degree=4)
+        get_bcs = lambda V: None
+        get_B = BPHelmholtz
+    
     e0 = None
     h0 = None
     for n in [2**i for i in range(5, 13)]:
         mesh = UnitIntervalMesh(n)
         V = FunctionSpace(mesh, 'CG', 1)
-        bcs = DirichletBC(V, Constant(0), 'on_boundary')
+        bcs = get_bcs(V)
 
-        B = BPDirichletLaplacian(V, bcs, s=s, params={'k': lambda size, h: 1/4.})
+        B = get_B(V, bcs, s=s, params={'k': lambda size, h: 1/4.})
 
         u, v = TrialFunction(V), TestFunction(V)
         a = inner(grad(u), grad(v))*dx
         b = assemble(inner(f, v)*dx)
-        #_, b = assemble_system(a, b, bcs)
-        bcs.apply(b)
-        
+
+        if bcs is not None:
+            bcs.apply(b)
+
         x = B*b
 
         df = Function(V, x)
         h = mesh.hmin()
         e = errornorm(u_exact, df, 'L2', degree_rise=3)
         if e0 is None:
-            rate = -1
+            rate = np.nan
         else:
             rate = ln(e/e0)/ln(h/h0)
 
@@ -172,12 +195,11 @@ if __name__ == '__main__':
         h0 = float(h)
 
         print '%.2E %.4E %.2f' % (mesh.hmin(), e0, rate)
+
     u_exact = interpolate(u_exact, V)
     #u_exact.vector().axpy(-1, df.vector())
 
     xx = V.tabulate_dof_coordinates()
-    for dof in bcs.get_boundary_values().keys():
-        print u_exact.vector().array()[dof], xx[dof]
     
     import matplotlib.pyplot as plt
 
