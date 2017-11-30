@@ -60,26 +60,9 @@ class BPOperatorBase(block_base):
         # Recurse
         return [prepare_boundary_conditions(cls, bc, V) for bc in bcs]
 
-    def matvec(self, b):
-        if self.s > 0:
-            return self.apply(b, self.s)
-        else:
-            A, _ = assemble_system(self.operator, self.dummy_rhs, self.bcs)
-            M, _ = assemble_system(self.identity, self.dummy_rhs, self.bcs)
-
-            z = self.apply(b, 0.5*(1-self.s))
-            
-            y = A*z
-            
-            # print y.norm('l2')
-            x = self.apply(y, 0.5*(1-self.s))
-            #print x.norm('l2')
-            
-            return x
-        
-    # Implementation of cbc.block API --------------------------------
     def apply(self, b, beta):
-        print 'beta', beta
+        assert between(beta, (0, 1))
+        
         x = self.create_vec(1)
         x.zero()
         xk = x.copy()
@@ -104,20 +87,39 @@ class BPOperatorBase(block_base):
             #print 'shift', exp(2*yl)
             
             x.axpy(exp(2*yl*(beta - 1.)), xk)
-        print count
+        
         x *= 2*k*sin(pi*beta)/pi
-        print '#solves', count
-        return x
+        
+        return x, count
+
+    # Implementation of cbc.block API --------------------------------
+    
+    def matvec(self, b):
+        if self.s > 0:
+            x, count = self.apply(b, self.s)
+            self.nsolves = count
+            return x
+        else:
+            A, _ = assemble_system(self.operator, self.dummy_rhs, self.bcs)
+
+            z, count0 = self.apply(b, 0.5*(1+self.s))
+            
+            y = A*z
+            
+            x, count1 = self.apply(y, 0.5*(1+self.s))
+
+            self.nsolves = count0 + count1
+            
+            return x
 
     @vec_pool
     def create_vec(self, dim=1):
         return Vector(None, self.size)
-
     
 # Specializations
 
 
-class BPDirichletLaplacian(BPOperatorBase):
+class BP_DirichletLaplacian(BPOperatorBase):
     '''
     TODO
     '''
@@ -126,53 +128,70 @@ class BPDirichletLaplacian(BPOperatorBase):
 
         u, v = TrialFunction(V), TestFunction(V)
         h = CellSize(V.mesh())
-        a = inner(grad(u), grad(v))*dx            
+
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
+            assert V.ufl_element().value_shape() == ()
+            assert V.ufl_element().degree() == 0
+
+            h_avg = avg(h)            
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+        else:
+            a = inner(grad(u), grad(v))*dx            
         
         BPOperatorBase.__init__(self, a, bcs, s, params)
 
         
-class BPHelmholtz(BPOperatorBase):
+class BP_NeumannHelmholtz(BPOperatorBase):
     '''
     TODO
     '''
-    def __init__(self, V, bcs, s, params):
+    def __init__(self, V, s, params):
 
         u, v = TrialFunction(V), TestFunction(V)
         h = CellSize(V.mesh())
-        a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
-        
+
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
+            assert V.ufl_element().value_shape() == ()
+            assert V.ufl_element().degree() == 0
+
+            h_avg = avg(h)
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + inner(u, v)*dx
+        else:
+            a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+
+        bcs = None
         BPOperatorBase.__init__(self, a, bcs, s, params)
 
-        
 # -------------------------------------------------------------------
 
 if __name__ == '__main__':
     from dolfin import UnitIntervalMesh, FunctionSpace, Expression, assemble
     from dolfin import plot, interactive, Function, interpolate, errornorm, ln
 
-    s = 0.75
+    s = 0.5
 
+    params={'k': lambda size, h: 1/4.}
     if False:
         k = 1.
         f = Expression('sin(k*pi*x[0])', k=k, degree=4)
-        u_exact = Expression('sin(k*pi*x[0])/pow(k*pi, 2*s)', s=s, k=k, degree=4)
+        u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
         get_bcs = lambda V: DirichletBC(V, Constant(0), 'on_boundary')
-        get_B = BPDirichletLaplacian
+        get_B = lambda V, bcs, s: BP_DirichletLaplacian(V, bcs, s, params=params)
     else:
         k = 1.
         f = Expression('cos(k*pi*x[0])', k=k, degree=4)
         u_exact = Expression('cos(k*pi*x[0])/pow(pow(k*pi, 2) + 1, s)', s=s, k=k, degree=4)
         get_bcs = lambda V: None
-        get_B = BPHelmholtz
+        get_B = lambda V, bcs, s: BP_NeumannHelmholtz(V, s, params=params)
     
     e0 = None
     h0 = None
     for n in [2**i for i in range(5, 13)]:
         mesh = UnitIntervalMesh(n)
-        V = FunctionSpace(mesh, 'CG', 1)
+        V = FunctionSpace(mesh, 'DG', 0)
         bcs = get_bcs(V)
 
-        B = get_B(V, bcs, s=s, params={'k': lambda size, h: 1/4.})
+        B = get_B(V, bcs, s)
 
         u, v = TrialFunction(V), TestFunction(V)
         a = inner(grad(u), grad(v))*dx
@@ -194,7 +213,7 @@ if __name__ == '__main__':
         e0 = e
         h0 = float(h)
 
-        print '%.2E %.4E %.2f' % (mesh.hmin(), e0, rate)
+        print '%.2E %.4E %.2f [%d]' % (mesh.hmin(), e0, rate, B.nsolves)
 
     u_exact = interpolate(u_exact, V)
     #u_exact.vector().axpy(-1, df.vector())
