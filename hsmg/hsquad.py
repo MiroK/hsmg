@@ -214,7 +214,7 @@ class BP_HsNorm_Base(BP_Operator_Base):
 
                 # Setup the solver here as well
                 # Take A as a preconditioner
-                Bmat, _ = assemble_system(self.A, self.L, self.bcs)
+                Bmat, _ = assemble_system(self.A + self.I, self.L, self.bcs)
                 B = PETScPreconditioner('hypre_amg')
                 # Should be SPD
                 solver = PETScKrylovSolver('cg', B)
@@ -300,19 +300,30 @@ class BP_H1Norm(BP_HsNorm_Base):
 if __name__ == '__main__':
     from dolfin import UnitIntervalMesh, FunctionSpace, Expression, assemble
     from dolfin import plot, interactive, Function, interpolate, errornorm, ln
-
+    from dolfin import UnitSquareMesh
+    
     s = 0.5
     k = 1.
     
-    params = {'k': 0.5,
+    params = {'k': 0.4,
               'solver': 'iterative',
-              'krylov_parameters': {'relative_tolerance': 1E-14,
-                                    'absolute_tolerance': 1E-14,
+              'krylov_parameters': {'relative_tolerance': 1E-8,
+                                    'absolute_tolerance': 1E-8,
                                     'convergence_norm_type': 'true',
                                     'monitor_convergence': False}}
     if True:
-        f = Expression('sin(k*pi*x[0])', k=k, degree=4)
-        u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
+        # f = Expression('sin(k*pi*x[0])', k=k, degree=4)
+        # u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
+
+        f = Expression('sin(k*pi*x[0])*sin(l*pi*x[1])', k=k, l=2*k, degree=4)
+        u_exact = Expression('sin(k*pi*x[0])*sin(l*pi*x[1])/pow(pow(k*pi, 2) + pow(l*pi, 2), s)',
+                             s=s, k=k, l=2*k, degree=4)
+
+        
+        # f = Expression('sin(k*pi*x[0])', k=k, degree=4)
+        # u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
+        
+        
         get_bcs = lambda V: DirichletBC(V, Constant(0), 'on_boundary')
         get_B = lambda V, bcs, s: BP_H10Norm(V, bcs, s, params=params)
     else:
@@ -323,8 +334,9 @@ if __name__ == '__main__':
     
     e0 = None
     h0 = None
-    for n in [2**i for i in range(5, 13)]:
-        mesh = UnitIntervalMesh(n)
+    for n in [2**i for i in range(2, 10)]: #[2**i for i in range(5, 13)]:
+        # mesh = UnitIntervalMesh(n)
+        mesh = UnitSquareMesh(n, n)
         V = FunctionSpace(mesh, 'CG', 1)
         bcs = get_bcs(V)
 
@@ -350,19 +362,22 @@ if __name__ == '__main__':
         h0 = float(h)
         nsolves, niters_per_solve = B.nsolves, float(B.niters)/B.nsolves 
         
-        print '%.2E %.4E %.2f [%d(%.4f)]' % (mesh.hmin(), e0, rate, nsolves, niters_per_solve)
+        print '%d | %.2E %.4E %.2f [%d(%.4f)]' % (V.dim(), mesh.hmin(), e0, rate, nsolves, niters_per_solve)
 
     u_exact = interpolate(u_exact, V)
-    #u_exact.vector().axpy(-1, df.vector())
+    u_exact.vector().axpy(-1, df.vector())
 
-    xx = V.tabulate_dof_coordinates()
+    plot(u_exact)
+    interactive()
+
+    # xx = V.tabulate_dof_coordinates()
     
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    plt.figure()
-    plt.plot(xx, u_exact.vector().array(), label='exact')
-    plt.plot(xx, df.vector().array(), label='numeric')
-    plt.legend(loc='best')
-    plt.show()
+    # plt.figure()
+    # plt.plot(xx, u_exact.vector().array(), label='exact')
+    # plt.plot(xx, df.vector().array(), label='numeric')
+    # plt.legend(loc='best')
+    # plt.show()
 
     
