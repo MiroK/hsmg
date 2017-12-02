@@ -298,21 +298,22 @@ class BP_H1Norm(BP_HsNorm_Base):
 
 # -------------------------------------------------------------------
 
+# NOTE: this is for debugging
 if __name__ == '__main__':
     from dolfin import UnitIntervalMesh, FunctionSpace, Expression, assemble
     from dolfin import plot, interactive, Function, interpolate, errornorm, ln
     from dolfin import UnitSquareMesh
     
-    s = 0.5
+    s = -0.9
     k = 1.
     
-    params = {'k': 0.1,
+    params = {'k': 0.25,
               'solver': 'cholesky',
               'krylov_parameters': {'relative_tolerance': 1E-8,
                                     'absolute_tolerance': 1E-8,
                                     'convergence_norm_type': 'true',
                                     'monitor_convergence': False}}
-    if False:
+    if True:
         f = Expression('sin(k*pi*x[0])', k=k, degree=4)
         u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
 
@@ -340,10 +341,10 @@ if __name__ == '__main__':
     e0 = None
     h0 = None
     for n in [2**i for i in range(2, 7)]: #[2**i for i in range(5, 13)]:
-        # mesh = UnitIntervalMesh(n)
-        mesh = UnitSquareMesh(n, n)
-        # V = FunctionSpace(mesh, 'CG', 1)
-        V = FunctionSpace(mesh, 'DG', 0)
+        mesh = UnitIntervalMesh(n)
+        # mesh = UnitSquareMesh(n, n)
+        V = FunctionSpace(mesh, 'CG', 1)
+        # V = FunctionSpace(mesh, 'DG', 0)
         bcs = get_bcs(V)
 
         B = get_B(V, bcs, s)

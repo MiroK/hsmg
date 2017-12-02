@@ -3,7 +3,7 @@
 from fenics_ii.utils.norms import H10_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
-from hsmg import Hs0NormMG
+from hsmg.hsquad import BP_H10Norm
 from hsmg.utils import to_csr_matrix
 from block.iterative import ConjGrad
 
@@ -11,9 +11,9 @@ from petsc4py import PETSc
 from dolfin import *
 import numpy as np
 
-
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots()
+
 
 class H10_FAST(object):
     '''
@@ -68,23 +68,19 @@ class H10_FAST(object):
         return PETScMatrix(mat)
 
     
-def generator(hierarchy, InterpolationNorm):
+def generator(mesh, InterpolationNorm, compute_k):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta)^s
     '''
-    mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
     bdry = DomainBoundary()
     
     bcs = DirichletBC(V, Constant(0), bdry)
     As = InterpolationNorm(V, bcs=bcs)
   
-
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0}
-
-    make_B = lambda s: Hs0NormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
+    bp_params = {'k': compute_k,
+                 'solver': 'cholesky'}
+    make_B = lambda s: BP_H10Norm(V, bcs, s, bp_params)
 
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     # Wait for s to be send in
@@ -111,6 +107,11 @@ def generator(hierarchy, InterpolationNorm):
         # Compute solution
         x = Ainv * b
 
+        nsolves, niters_per_solve = B.nsolves, float(B.niters)/B.nsolves
+        k = compute_k(s, V.dim(), mesh.hmin())
+        print 'with k = %g, solves and niterations per solve[%d(%.4f)]' % (k, nsolves, niters_per_solve)
+
+        
         niters = len(Ainv.residuals) - 1
         size = V.dim()
 
@@ -139,15 +140,9 @@ if __name__ == '__main__':
     import argparse
     import re
 
-    D_options = ['1', '2',  # Xd in Xd
-                 '12', '13', '23',  # Xd in Yd no intersect
-                 '-12', '-13', '-23']  # Xd in Yd isect
-    
     parser = argparse.ArgumentParser()
     
     parser.add_argument('s', help='Exponent of the operator or start:step:end')
-    parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
-                        default='1', choices=['all'] + D_options)  # Xd in Yd loop
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     parser.add_argument('-log', type=str, help='Path to file for storing results',
@@ -165,33 +160,32 @@ if __name__ == '__main__':
         # FIXME: map needed bacause of silly types in fenicsii
         s_values = map(float, np.arange(start, end+step, step))
 
-    # Domain series
-    domains = D_options if args.D == 'all' else [args.D]
+    # Tweak this
+    compute_k = lambda s, N, h: 5.0*1./ln(N)
 
-    InterpolationNorm = H10_FAST if (args.D == '1' and args.fgevp) else H10_L2_InterpolationNorm
+    
+    InterpolationNorm = H10_FAST if args.fgevp else H10_L2_InterpolationNorm
 
-    for D in domains:
-        print '\t\033[1;37;32m%s\033[0m' % D
-        results = defaultdict(list)
-        sizes = []
-        for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
-            print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
-            hierarchy = compute_hierarchy(D, n, nlevels=4)
-            gen = generator(hierarchy, InterpolationNorm)
+    results = defaultdict(list)
+    sizes = []
+    for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
+        print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
 
-            for s in s_values:
-                size, niters, cond = compute(gen, s=s)
+        mesh = UnitIntervalMesh(n)
+        gen = generator(mesh, InterpolationNorm, compute_k)
 
-                msg = '@s = %g, Current iters %d, cond %.2f, previous %r'
-                print '\033[1;37;34m%s\033[0m' % (msg % (s, niters, cond, results[s][::-1]))
-                results[s].append((niters, cond))
-            sizes.append((size, ))
+        for s in s_values:
+            size, niters, cond = compute(gen, s=s)
 
-            # Log after each n in case of kill signal for large n
-            # Change make header aware properly
-            if args.log:
-                args.D = D
-                log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')
+            msg = '@s = %g, Current iters %d, cond %.2f, previous %r'
+            print '\033[1;37;34m%s\033[0m' % (msg % (s, niters, cond, results[s][::-1]))
+            results[s].append((niters, cond))
+        sizes.append((size, ))
 
-        plt.legend(loc='best')
-        plt.show()
+        # Log after each n in case of kill signal for large n
+        # Change make header aware properly
+        if args.log:
+            log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')
+
+    plt.legend(loc='best')
+    plt.show()
