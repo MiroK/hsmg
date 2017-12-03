@@ -5,12 +5,14 @@ from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from hsmg import HsNormMG
 
 from block.iterative import ConjGrad
+from block.algebraic.petsc import LumpedInvDiag
+from block.algebraic.petsc import LU
 
 from dolfin import *
 import numpy as np
 
 
-def main(hierarchy, s, bcs=False):
+def main(hierarchy, s, bcs=False, store_eigs=True):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''

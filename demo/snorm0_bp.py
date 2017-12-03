@@ -3,7 +3,7 @@
 from fenics_ii.utils.norms import H10_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
-from hsmg.hsquad import BP_H10Norm
+from hsmg.hsquad import BP_H10Norm, BP_Operator_Base
 from hsmg.utils import to_csr_matrix
 from block.iterative import ConjGrad
 
@@ -36,7 +36,7 @@ class H10_FAST(object):
         h = V.mesh().hmin()
     
         y = np.cos(k*pi/n)
-        lmbda0 = (6./h**2)*(1.-y)/(2. + y)
+        lmbda0 = (6./h**2)*(1. - y)/(2. + y)
 
         xj = V.tabulate_dof_coordinates()
 
@@ -54,7 +54,7 @@ class H10_FAST(object):
             # left with ...
             u *= h/3.*(2. + cos(ki*pi/n))
             U[i] = u
-        print 'GEVP setup took %g s' % time.stop()
+        warning('GEVP setup took %g s' % time.stop())
 
         lmbda = np.r_[1., 1., lmbda0]
 
@@ -67,8 +67,15 @@ class H10_FAST(object):
         mat = PETSc.Mat().createDense(size=len(B), array=B)
         return PETScMatrix(mat)
 
+# TODO:
+# wire up with fast
+# apply with snorm_bp - ideally loop works
+# wire up with demos
+# -----------------
+# debug
     
-def generator(mesh, InterpolationNorm, compute_k):
+    
+def generator(mesh, InterpolationNorm, get_k):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta)^s
     '''
@@ -78,9 +85,44 @@ def generator(mesh, InterpolationNorm, compute_k):
     bcs = DirichletBC(V, Constant(0), bdry)
     As = InterpolationNorm(V, bcs=bcs)
   
-    bp_params = {'k': compute_k,
+    bp_params = {'k': get_k,
                  'solver': 'cholesky'}
-    make_B = lambda s: BP_H10Norm(V, bcs, s, bp_params)
+
+    if isinstance(As, H10_FAST):
+        from block.algebraic.petsc import Cholesky
+        from scipy.sparse import diags
+        from petsc4py import PETSc
+        
+        class Foo(BP_Operator_Base):
+
+            def compute_k(self, fractionality, space_dim, mesh_size):
+                return get_k(fractionality, space_dim, mesh_size)
+
+            
+            def shifted_operator(self, shift):
+                n = self.V.dim()
+                h = self.V.mesh().hmin()
+                
+                main = np.r_[1., (2./h + shift*4*h/6.)*np.ones(V.dim()-2), 1.]
+                off = np.r_[0, (-1./h + shift*h/6.)*np.ones(V.dim()-3), 0.]
+
+                A = diags([off, main, off], [-1, 0, 1]).tocsr()
+                A = PETSc.Mat().createAIJ(size=A.shape,
+                                          csr=(A.indptr, A.indices, A.data)) 
+                return PETScMatrix(A)
+
+            
+            def solve_shifted_problem(self, operator, x, vector):
+                Ainv = Cholesky(operator)
+                x[:] = Ainv*vector
+                return 1, x
+            
+        make_B = lambda s, V=V: Foo(s, V) 
+        
+        # Need to define here how to get shifted operators from A, M
+    else:
+        # The norm is constructed from V
+        make_B = lambda s: BP_H10Norm(V, bcs, s, bp_params)
 
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     # Wait for s to be send in
@@ -108,7 +150,7 @@ def generator(mesh, InterpolationNorm, compute_k):
         x = Ainv * b
 
         nsolves, niters_per_solve = B.nsolves, float(B.niters)/B.nsolves
-        k = compute_k(s, V.dim(), mesh.hmin())
+        k = get_k(s, V.dim(), mesh.hmin())
         print 'with k = %g, solves and niterations per solve[%d(%.4f)]' % (k, nsolves, niters_per_solve)
 
         
@@ -161,8 +203,7 @@ if __name__ == '__main__':
         s_values = map(float, np.arange(start, end+step, step))
 
     # Tweak this
-    compute_k = lambda s, N, h: 5.0*1./ln(N)
-
+    get_k = lambda s, N, h: 5.0*1./ln(N)
     
     InterpolationNorm = H10_FAST if args.fgevp else H10_L2_InterpolationNorm
 
@@ -172,7 +213,7 @@ if __name__ == '__main__':
         print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
 
         mesh = UnitIntervalMesh(n)
-        gen = generator(mesh, InterpolationNorm, compute_k)
+        gen = generator(mesh, InterpolationNorm, get_k)
 
         for s in s_values:
             size, niters, cond = compute(gen, s=s)

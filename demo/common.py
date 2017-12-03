@@ -115,7 +115,7 @@ def compute_hierarchy(dim, n, nlevels):
 
         # plot(markers, interactive=True, hide_below=0.5)
 
-        print sum(1 for _ in SubsetIterator(markers, 1))
+        assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
         # NOTE: !(EmbeddedMesh <:  Mesh)
         return [EmbeddedMesh(mesh, markers, 1).mesh]
 
