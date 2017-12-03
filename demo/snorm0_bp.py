@@ -67,13 +67,6 @@ class H10_FAST(object):
         mat = PETSc.Mat().createDense(size=len(B), array=B)
         return PETScMatrix(mat)
 
-# TODO:
-# wire up with fast
-# apply with snorm_bp - ideally loop works
-# wire up with demos
-# -----------------
-# debug
-    
     
 def generator(mesh, InterpolationNorm, get_k):
     '''

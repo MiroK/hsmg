@@ -15,6 +15,7 @@ from block import block_mat, block_vec, block_bc
 from block.algebraic.petsc import AMG
 
 from hsmg import HsNormMG
+from hsmg.hsquad import BP_H1Norm
 
 from dolfin import *
 import numpy as np
@@ -74,8 +75,13 @@ def setup_system(precond, meshes):
     # Trace of H^1 is H^{1/2} and the dual is H^{-1/2}
     if precond == 'mg':
         P11 = HsNormMG(Q, bdry, -0.5, mg_params, mesh_hierarchy=hierarchy)
+    elif precond == 'eig':
+        P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=-0.5, as_type=PETScMatrix)            # Bonito
     else:
-        P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=-0.5, as_type=PETScMatrix)
+        bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
+                     'solver': 'cholesky'}
+        P11 = BP_H1Norm(Q, -0.5, bp_params)
+
         
     # The preconditioner
     BB = block_mat([[P00, 0], [0, P11]])
@@ -115,7 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
                         default='iters', choices=['iters', 'cond'])
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='MG', choices=['eig', 'mg'])
+                        default='MG', choices=['eig', 'mg', 'bp'])
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
     

@@ -25,6 +25,7 @@ from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
 from hsmg import HsNormMG
+from hsmg.hsquad import BP_H1Norm
 
 from dolfin import *
 
@@ -115,7 +116,7 @@ def setup_system(precond, hierarchy, subdomains, beta=1E-10):
     # boundary conditions are set
     if precond == 'eig':
         B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
-    else:
+    elif precond ==  'mg':
         # Alternative B22 block:
         mg_params = {'macro_size': 1,
                      'nlevels': len(hierarchy),
@@ -123,7 +124,13 @@ def setup_system(precond, hierarchy, subdomains, beta=1E-10):
                      'size': 1}
 
         bdry = None
-        B22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)  
+        B22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
+    # Bonito
+    else:
+        bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
+                     'solver': 'cholesky'}
+    
+        B22 = BP_H1Norm(Q, 0.5, bp_params)
 
     BB = block_mat([[B00, 0, 0],
                     [0, B11, 0],
@@ -149,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
                         default='iters', choices=['iters', 'cond'])
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='MG', choices=['eig', 'mg'])
+                        default='mg', choices=['eig', 'mg', 'bp'])
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
 

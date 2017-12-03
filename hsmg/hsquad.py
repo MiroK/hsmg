@@ -47,7 +47,7 @@ class BP_Operator_Base(block_base):
                 A = self.shifted_operator(0.)
                 # The first fraction apply
                 x0, nsolves, niters = self.apply_negative_power(b, 0.5*(1 + s))
-                self.nsolves =+ nsolves
+                self.nsolves += nsolves
                 self.niters += niters
                 
                 # L action
@@ -55,9 +55,9 @@ class BP_Operator_Base(block_base):
                 A.mult(x0, b1)
                 # The second fraction apply
                 x, nsolves, niters = self.apply_negative_power(b1, 0.5*(1 + s))
-                self.nsolves =+ nsolves
+                self.nsolves += nsolves
                 self.niters += niters
-            
+                
                 return x
         self.action = action
         
@@ -386,5 +386,3 @@ if __name__ == '__main__':
     # plt.plot(xx, df.vector().array(), label='numeric')
     # plt.legend(loc='best')
     # plt.show()
-
-    

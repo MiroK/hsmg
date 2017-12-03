@@ -26,11 +26,19 @@ def main(hierarchy, s, bcs=False, store_eigs=True):
         bdry = None
         bcs = []
     A = H1_L2_InterpolationNorm(V, bcs=bcs).get_s_norm(s=s, as_type=PETScMatrix)
+
+    u, v = TrialFunction(V), TestFunction(V)
+    m = inner(u, v)*dx
+    a = inner(grad(u), grad(v))*dx + m
+    M = assemble(m)
     
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 1.0}
-    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
+    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
+    # X = assemble(a)
+    # B = LumpedInvDiag(M)*X*LumpedInvDiag(M)
+    # B = LU(M)*X*LU(M)
 
     x = Function(V).vector()
     # Init guess is random
@@ -41,6 +49,7 @@ def main(hierarchy, s, bcs=False, store_eigs=True):
     # Rhs
     u, v = TrialFunction(V), TestFunction(V)
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
+    # f = Expression('cos(k*pi*x[0])', k=1, degree=4)
     # b = Function(V).vector()
     if bdry is not None:
         _, b = assemble_system(inner(u, v)*dx, inner(f, v)*dx, bcs)
@@ -58,8 +67,11 @@ def main(hierarchy, s, bcs=False, store_eigs=True):
     niters = len(Ainv.residuals) - 1
     size = V.dim()
 
-    lmin, lmax = np.sort(np.abs(Ainv.eigenvalue_estimates()))[[0, -1]]
+    eigs = np.sort(np.abs(Ainv.eigenvalue_estimates()))
+    lmin, lmax = np.sort(eigs)[[0, -1]]
     cond = lmax/lmin
+
+    if store_eigs: np.savetxt('%g_%d.dat' % (s, V.dim()), eigs)
     
     return size, niters, cond
    
