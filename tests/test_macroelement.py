@@ -2,8 +2,6 @@ from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap, vertex_patch
 from hsmg.restriction import Dirichlet_dofs
 
-from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
-
 from dolfin import (EdgeFunction, CompiledSubDomain, BoundaryMesh,
                     UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh,
                     FunctionSpace, FiniteElement, DomainBoundary,
@@ -39,21 +37,12 @@ def test_hierarchy_dm_bcs():
     ds = macro_dofmap(1, V, hierarchy, bdry_dofs)
 
     for mesh, d, bdofs in zip(hierarchy, ds, bdry_dofs):
-        # Not boundary dof is present in the macro elemnt of any vertex
+        # No boundary dof is present in the macro elemnt of any vertex
         assert not any(set(macro_el) & set(bdofs) for macro_el in d)
-        # Not that for P1 there will be less patches then maps because
+        # Note that for P1 there will be less patches then maps because
         # bdry vertex macro_element with bcs is []
         
 # --------------------------------------------------------------------
-
-
-def interval3d():
-    '''Mesh for testing line in 3d embedding'''
-    mesh = UnitCubeMesh(16, 16, 16)
-    f = EdgeFunction('size_t', mesh, 0)
-    CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(f, 1)
-    return EmbeddedMesh(mesh, f, 1).mesh
-
 
 def interval2d():
     '''Mesh for testing line in 2d embedding'''
@@ -68,7 +57,7 @@ def triangle3d():
 
         
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
-                                  interval2d, interval3d, triangle3d])
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('degree', [0, 1, 2])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_DG(cell, degree, level):
@@ -94,7 +83,7 @@ def test_DG(cell, degree, level):
 
     
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
-                                  interval2d, interval3d, triangle3d])
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG1(cell, level):
     '''CG1 on level is all CG1 on previous level'''
@@ -126,7 +115,7 @@ def test_CG1(cell, level):
 
 
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
-                                  interval2d, interval3d, triangle3d])
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG2(cell, level):
     meshes = {interval: UnitIntervalMesh(100),
