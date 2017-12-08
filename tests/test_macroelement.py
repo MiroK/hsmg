@@ -6,7 +6,8 @@ from dolfin import (EdgeFunction, CompiledSubDomain, BoundaryMesh,
                     UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh,
                     FunctionSpace, FiniteElement, DomainBoundary,
                     triangle, interval, tetrahedron,
-                    RectangleMesh, BoxMesh, Point)
+                    RectangleMesh, BoxMesh, Point,
+                    DirichletBC, dof_to_vertex_map)
 
 import numpy as np
 import random
@@ -161,3 +162,84 @@ def test_CG2(cell, level):
     dofs_ = dofs_ - bdry
 
     assert dofs == dofs_, (dofs-dofs_, dofs_-dofs)
+
+##
+# There were some issues with macroelement due to bc dofs.
+##
+def test_P1_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 1
+    assert all(len(mel) == 1 for mel in mel_dmap)
+
+    
+def test_P1_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 1
+    assert all(len(mel) == 1 for mel in mel_dmap)
+
+    
+def test_P2_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'CG', 2)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 3
+    assert all(len(mel) == 3 for mel in mel_dmap)
+
+    
+def test_P2_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'CG', 2)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    x = mesh.coordinates()
+    for i, xi in enumerate(x):
+        mel = mel_dmap[i]
+
+        if abs(xi[0]*(1-xi[0])) < 1E-13:
+            assert len(mel) == 2, xi
+        else:
+            assert len(mel) == 3, (xi, abs(xi[0]*(1-x[0])))
+
+
+def test_DG0_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'DG', 0)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 2
+    assert all(len(mel) == 2 for mel in mel_dmap)
+
+    
+def test_DG0_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'DG', 0)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    x = mesh.coordinates()
+    for i, xi in enumerate(x):
+        mel = mel_dmap[i]
+
+        if abs(xi[0]*(1-xi[0])) < 1E-13:
+            assert len(mel) == 1, xi
+        else:
+            assert len(mel) == 2, (xi, abs(xi[0]*(1-x[0])))
+
+            
+def test_P1_macroel_square():
+    from collections import Counter
+    
+    mesh = UnitSquareMesh(20, 20)
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    counts = Counter(map(len, mel_dmap))
+    assert counts[2] == 4  # Think 5x5 and point (1.0, 0.2)
+    assert counts[1] == len(mel_dmap) - 4
+
+    
