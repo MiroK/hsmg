@@ -120,12 +120,19 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
                 Rm = self.R[j]
                 # Restrict and apply:
                 b_coarse = Rm.dot(bj)
+
+                # print j, '<<<', np.sort(b_coarse)
+
+
+
                 b_coarse[~self.masks[j+1]] = 0.
                 
                 x_coarse = self.bpx_level(j+1, b_coarse)
                 # Prolong and add:
                 x_coarse = Rm.T.dot( x_coarse )
+                # print 'fenics S', np.sort(np.linalg.eigvals(S.B.todense()))
                 x_fine = S(bj)
+                # print 'fenics', np.sort(x_fine)
                 return x_fine + x_coarse
 
         def set_coarsest_inverse(self):
@@ -187,6 +194,7 @@ class HSAS(object):
         Al = sp.lil_matrix(A)
         Ml = sp.lil_matrix(M)
         for dofs in dms:
+            # print 'fenics dofs', dofs
             # Local matrices:
             Aloc = Al[np.ix_(dofs,dofs)].todense()
             Mloc = Ml[np.ix_(dofs,dofs)].todense()
@@ -195,6 +203,7 @@ class HSAS(object):
             Uloc = np.asarray( Uloc )
             # Insert appropriately:
             B[np.ix_(dofs,dofs)] += np.dot( Uloc * (lam**(-s)), Uloc.T)
+        # print
         # Set matrix:
         self.B = sp.csr_matrix(B)
 

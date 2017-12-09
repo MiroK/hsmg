@@ -48,7 +48,7 @@ def compute_hierarchy(mesh_init, bdry, n, nlevels):
     if nlevels == 1:
         mesh = mesh_init(*(n, )*dim)
 
-        markers = FacetFunction('size_t', mesh, 0)
+        markers = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         bdry.mark(markers, 1)
         assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
         # NOTE: !(EmbeddedMesh <:  Mesh)
@@ -159,6 +159,8 @@ if __name__ == '__main__':
                         default='mg', choices=['eig', 'mg', 'bp'])
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
+    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
+                        default=1E-12)
 
     args = parser.parse_args()
 
@@ -179,7 +181,7 @@ if __name__ == '__main__':
 
         mesh = Mesh(*(n, )*dim)
         # Setup tags of interior domains 
-        subdomains = CellFunction('size_t', mesh, 0)
+        subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
         
         try:
             for cell in cells(mesh):
@@ -195,11 +197,11 @@ if __name__ == '__main__':
 
         system = setup_system(args.B, hierarchy, subdomains)
 
-        size, value = main(system)
+        size, value = main(system, args.tol)
 
         msg = 'Problem size %d, current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
     # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %g')
+    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f')

@@ -11,74 +11,73 @@ from block.algebraic.petsc import LU
 from dolfin import *
 import numpy as np
 
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
 
-def main(hierarchy, s, bcs=False, store_eigs=True):
+
+def generator(hierarchy, tolerance):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
+    
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
-
-    if bcs:
-        bdry = DomainBoundary()
-        bcs = DirichletBC(V, Constant(0), bdry)
-    else:
-        bdry = None
-        bcs = []
-    A = H1_L2_InterpolationNorm(V, bcs=bcs).get_s_norm(s=s, as_type=PETScMatrix)
-
-    u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
-    a = inner(grad(u), grad(v))*dx + m
-    M = assemble(m)
     
+    As = H1_L2_InterpolationNorm(V)
+
+    bdry = None    
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 1.0}
-    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
-    # X = assemble(a)
-    # B = LumpedInvDiag(M)*X*LumpedInvDiag(M)
-    # B = LU(M)*X*LU(M)
 
-    x = Function(V).vector()
-    # Init guess is random
-    xrand = np.random.random(x.local_size())
-    xrand -= xrand.sum()/x.local_size()
-    x.set_local(xrand)
+    make_B = lambda s: HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
 
-    # Rhs
-    u, v = TrialFunction(V), TestFunction(V)
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
-    # f = Expression('cos(k*pi*x[0])', k=1, degree=4)
-    # b = Function(V).vector()
-    if bdry is not None:
-        _, b = assemble_system(inner(u, v)*dx, inner(f, v)*dx, bcs)
-        bcs.apply(x)
-    else:
+    # Wait for s to be send in
+    while True:
+        s = yield
+
+        A = As.get_s_norm(s=s, as_type=PETScMatrix)
+        B = make_B(s)
+
+        x = Function(V).vector()
+        # Init guess is random
+        xrand = np.random.random(x.local_size())
+        xrand -= xrand.sum()/x.local_size()
+        x.set_local(xrand)
+    
+        # Rhs
+        v = TestFunction(V)
         b = assemble(inner(f, v)*dx)
+    
+        Ainv = ConjGrad(A, precond=B, initial_guess=x,
+                        tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
+
+        # Compute solution
+        x = Ainv * b
+
+        niters = len(Ainv.residuals) - 1
+        size = V.dim()
+
+        eigws = np.abs(Ainv.eigenvalue_estimates())
+        ax.plot(eigws, label='%d' % V.dim(), linestyle='none', marker='x')
         
-    Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
-
-    # Compute solution
-    x = Ainv * b
-
-    # plot(Function(V, x), interactive=True)
+        lmin, lmax = np.sort(eigws)[[0, -1]]
+        cond = lmax/lmin
     
-    niters = len(Ainv.residuals) - 1
-    size = V.dim()
+        yield (size, niters, cond)
 
-    eigs = np.sort(np.abs(Ainv.eigenvalue_estimates()))
-    lmin, lmax = np.sort(eigs)[[0, -1]]
-    cond = lmax/lmin
-
-    if store_eigs: np.savetxt('%g_%d.dat' % (s, V.dim()), eigs)
-    
-    return size, niters, cond
+        
+def compute(gen, s):
+    '''Trigger computations for given s'''
+    gen.next()
+    return gen.send(s)
    
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
     from common import log_results, compute_hierarchy
+    from collections import defaultdict
     from os.path import basename
     import argparse
     import re
@@ -97,10 +96,10 @@ if __name__ == '__main__':
                         default='1', choices=['all'] + D_options)  # Xd in Yd loop
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
-    parser.add_argument('-bcs', type=int, help='Apply boundary conditions',
-                        default=0)
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                          default='')
+    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
+                         default=1E-12)
     args = parser.parse_args()
 
     # Fractionality series
@@ -118,20 +117,29 @@ if __name__ == '__main__':
 
     for D in domains:
         print '\t\033[1;37;32m%s\033[0m' % D
-        for s in s_values:
-            print '\t\t\033[1;37;34m%s\033[0m' % s
-            history, sizes = [], []
-            for n in [2**i for i in range(5, 5+args.n)]:
-                hierarchy = compute_hierarchy(D, n, nlevels=4)
+        results = defaultdict(list)
+        sizes = []
+        for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
+            print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
+            hierarchy = compute_hierarchy(D, n, nlevels=4)
+            gen = generator(hierarchy, args.tol)
 
-                size, niters, cond = main(hierarchy, s=s, bcs=bool(args.bcs))
+            for s in s_values:
+                size, niters, cond = compute(gen, s=s)
 
-                msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-                print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
-                history.append((niters, cond))
-                sizes.append((size, ))
+    
+                msg = '@s = %g, Current iters %d, cond %.2f, previous %r'
+                print '\033[1;37;34m%s\033[0m' % (msg % (s, niters, cond, results[s][::-1]))
+                results[s].append((niters, cond))
+            sizes.append((size, ))
+
+            # Log after each n in case of kill signal for large n
             # Change make header aware properly
-            args.s = s
-            args.D = D
-            args.log and log_results(args, sizes, history, name=basename(__file__),
-                                     fmt='%d %d %g')
+            if args.log:
+                args.D = D
+                log_results(args, sizes, results, name=basename(__file__),
+                            fmt='%d %d %.16f')
+
+        plt.legend(loc='best')
+        plt.show()
+

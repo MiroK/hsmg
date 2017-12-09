@@ -1,4 +1,4 @@
-from dolfin import EdgeFunction, FacetFunction, SubsetIterator, CompiledSubDomain
+from dolfin import MeshFunction, SubsetIterator, CompiledSubDomain
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
 from dolfin import plot
 
@@ -40,12 +40,17 @@ def log_results(args, size, results, name='', fmt='%.18e'):
     return args.log
 
 
-def iter_solve((AA, bb, BB)):
+def iter_solve((AA, bb, BB), tolerance):
     '''MinRes solve to get iteration counts'''
     x = AA.create_vec()
     x.randomize()
 
-    AAinv = MinRes(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=500, show=2)
+    def monitor(k, x, r):
+        print k, r
+    
+    AAinv = MinRes(AA, precond=BB, initial_guess=x,
+                   tolerance=tolerance, relativeconv=True, maxiter=500, show=2,
+                   callback=monitor)
 
     # Compute solution
     x = AAinv * bb
@@ -56,12 +61,13 @@ def iter_solve((AA, bb, BB)):
     return size, niters
 
 
-def cond_solve((AA, bb, BB)):
+def cond_solve((AA, bb, BB), tolerance):
     '''Solve CGN to get the estimate of condition number'''
     x = AA.create_vec()
     x.randomize()
 
-    AAinv = CGN(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=1500, show=2)
+    AAinv = CGN(AA, precond=BB, initial_guess=x,
+                tolerance=tolerance, relativconv=True, maxiter=1500, show=2)
 
     # Compute solution
     x = AAinv * bb
@@ -110,7 +116,7 @@ def compute_hierarchy(dim, n, nlevels):
         mesh = mesh_init(*(n, )*yd)
         if gamma is None: return [mesh]
 
-        markers = (EdgeFunction if xd == 1 else FacetFunction)('size_t', mesh, 0)
+        markers = MeshFunction('size_t', mesh, xd, 0)
         gamma.mark(markers, 1)
 
         # plot(markers, interactive=True, hide_below=0.5)

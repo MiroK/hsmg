@@ -98,7 +98,7 @@ class HsNormMGBase(block_base):
     # Implementation of cbc.block API --------------------------------
     def matvec(self, b):
         # numpy -> numpy
-        x_values = self.mg(b.array())
+        x_values = self.mg(b.get_local())
         # Fill in dolfin Vector
         x = self.create_vec(dim=0)
         x.set_local(x_values); x.apply('insert')
@@ -125,7 +125,6 @@ class HsNormMG(HsNormMGBase):
         if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
-            
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
@@ -168,3 +167,5 @@ class Hs0NormMG(HsNormMGBase):
         m = inner(u, v)*dx
 
         HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+
+        

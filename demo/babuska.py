@@ -28,8 +28,9 @@ def setup_system(precond, meshes):
     hierarchy = []
     gamma_mesh = None
     for mesh in meshes:
-        facet_f = FacetFunction('size_t', mesh, 0)
+        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim() - 1, 0)
         CompiledSubDomain('near(x[0], 0)').mark(facet_f, 1)
+        # DomainBoundary().mark(facet_f, 1)
         gmesh = EmbeddedMesh(mesh, facet_f, 1)        
 
         if gamma_mesh is None: gamma_mesh = gmesh
@@ -63,14 +64,15 @@ def setup_system(precond, meshes):
     # System
     AA = block_mat([[A00, A01], [A10, 0]])
     bb = block_vec([b0, b1])
-    
+
+    print 'Assembled AA'
     # Preconditioner blocks
     P00 = AMG(A00)
 
     bdry = None
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
-                 'eta': 0.4}
+                 'eta': 1.0}
     
     # Trace of H^1 is H^{1/2} and the dual is H^{-1/2}
     if precond == 'mg':
@@ -81,7 +83,7 @@ def setup_system(precond, meshes):
         bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
                      'solver': 'cholesky'}
         P11 = BP_H1Norm(Q, -0.5, bp_params)
-
+    print 'Setup B'
         
     # The preconditioner
     BB = block_mat([[P00, 0], [0, P11]])
@@ -124,7 +126,9 @@ if __name__ == '__main__':
                         default='MG', choices=['eig', 'mg', 'bp'])
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
-    
+    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
+                        default=1E-12)
+
     args = parser.parse_args()
 
     dim = args.D
@@ -136,13 +140,14 @@ if __name__ == '__main__':
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
-
+        print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
+        
         system = setup_system(args.B, hierarchy)
-        size, value = main(system)
+        size, value = main(system, args.tol)
 
-        msg = 'Problem size %d, current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
+        msg = 'Problem size %d[%s], current %s is %g, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), size, args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
     # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %g')
+    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %.16f')

@@ -11,9 +11,9 @@ from petsc4py import PETSc
 from dolfin import *
 import numpy as np
 
-
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots()
+
 
 class H10_FAST(object):
     '''
@@ -68,9 +68,10 @@ class H10_FAST(object):
         return PETScMatrix(mat)
 
     
-def generator(hierarchy, InterpolationNorm):
+def generator(hierarchy, tolerance, InterpolationNorm):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta)^s
+    with zero Dirichlet bcs.
     '''
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
@@ -106,7 +107,8 @@ def generator(hierarchy, InterpolationNorm):
         b = assemble(inner(f, v)*dx)
         bcs.apply(b)
     
-        Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
+        Ainv = ConjGrad(A, precond=B, initial_guess=x,
+                        tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
 
         # Compute solution
         x = Ainv * b
@@ -154,6 +156,8 @@ if __name__ == '__main__':
                          default='')
     parser.add_argument('-fgevp', type=int, help='Use closed form eigenvalue solver to compute H^s norm (only D1)',
                         default=0)
+    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
+                        default=1E-12)
     args = parser.parse_args()
 
     # Fractionality series
@@ -177,7 +181,7 @@ if __name__ == '__main__':
         for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
             hierarchy = compute_hierarchy(D, n, nlevels=4)
-            gen = generator(hierarchy, InterpolationNorm)
+            gen = generator(hierarchy, args.tol, InterpolationNorm)
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)
@@ -191,7 +195,8 @@ if __name__ == '__main__':
             # Change make header aware properly
             if args.log:
                 args.D = D
-                log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')
+                log_results(args, sizes, results, name=basename(__file__),
+                            fmt='%d %d %.16f')
 
         plt.legend(loc='best')
         plt.show()
