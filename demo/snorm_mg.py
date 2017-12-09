@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 fig, ax = plt.subplots()
 
 
-def generator(hierarchy, tolerance):
+def generator(hierarchy, tolerance, mg_params_):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
@@ -26,9 +26,9 @@ def generator(hierarchy, tolerance):
     As = H1_L2_InterpolationNorm(V)
 
     bdry = None    
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0}
+    mg_params = {'nlevels': len(hierarchy)}
+    mg_params.update(mg_params_)
+                 
 
     make_B = lambda s: HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
 
@@ -90,16 +90,24 @@ if __name__ == '__main__':
                  '012', '013', '023']  # Xd in Yd loop
     
     parser = argparse.ArgumentParser()
-    
+    # What
     parser.add_argument('s', help='Exponent of the operator or start:step:end')
     parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
                         default='1', choices=['all'] + D_options)  # Xd in Yd loop
+    # How many
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
+    # Storing
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                          default='')
+    # Iterative solver setup
     parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
                          default=1E-12)
+    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
+                         default=1.0)
+    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
+                        default=1)
+
     args = parser.parse_args()
 
     # Fractionality series
@@ -122,7 +130,8 @@ if __name__ == '__main__':
         for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
             hierarchy = compute_hierarchy(D, n, nlevels=4)
-            gen = generator(hierarchy, args.tol)
+            gen = generator(hierarchy, tolerance=args.tol, mg_params_={'macro_size': args.mes,
+                                                                       'eta': args.eta})
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)

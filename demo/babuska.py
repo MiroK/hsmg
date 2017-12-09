@@ -21,7 +21,7 @@ from dolfin import *
 import numpy as np
 
 
-def setup_system(precond, meshes):
+def setup_system(precond, meshes, mg_params_):
     '''Solver'''
     omega_mesh = meshes[0]
     # Extract botttom edge meshes
@@ -70,9 +70,8 @@ def setup_system(precond, meshes):
     P00 = AMG(A00)
 
     bdry = None
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0}
+    mg_params = {'nlevels': len(hierarchy)}
+    mg_params.update(mg_params_)
     
     # Trace of H^1 is H^{1/2} and the dual is H^{-1/2}
     if precond == 'mg':
@@ -114,20 +113,29 @@ if __name__ == '__main__':
 
     
     parser = argparse.ArgumentParser()
+    # What
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
                          default=2)
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
-    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
                         default='iters', choices=['iters', 'cond'])
+    # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
                         default='MG', choices=['eig', 'mg', 'bp'])
+    
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
+    # Iter settings
     parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
                         default=1E-12)
+    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
+                        default=4)
+    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
+                        default=1.0)
+    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
+                        default=1)
+
 
     args = parser.parse_args()
 
@@ -142,7 +150,7 @@ if __name__ == '__main__':
         hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
         print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
         
-        system = setup_system(args.B, hierarchy)
+        system = setup_system(args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
         size, value = main(system, args.tol)
 
         msg = 'Problem size %d[%s], current %s is %g, previous %r'

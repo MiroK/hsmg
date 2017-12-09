@@ -58,7 +58,7 @@ def compute_hierarchy(mesh_init, bdry, n, nlevels):
         compute_hierarchy(mesh_init, bdry, n/2, nlevels-1)
 
 
-def setup_system(precond, hierarchy, subdomains, beta=1E-10):
+def setup_system(precond, hierarchy, subdomains, mg_params_, beta=1E-10):
     '''Solver'''
     kappa_e = Constant(1)
     kappa_i = Constant(1)
@@ -118,10 +118,8 @@ def setup_system(precond, hierarchy, subdomains, beta=1E-10):
         B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
     elif precond ==  'mg':
         # Alternative B22 block:
-        mg_params = {'macro_size': 1,
-                     'nlevels': len(hierarchy),
-                     'eta': 1.0,
-                     'size': 1}
+        mg_params = {'nlevels': len(hierarchy)}
+        mg_params.update(mg_params_)
 
         bdry = None
         B22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
@@ -147,20 +145,28 @@ if __name__ == '__main__':
 
     
     parser = argparse.ArgumentParser()
+    # What
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
                          default=2)
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
-    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
                         default='iters', choices=['iters', 'cond'])
+    # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
                         default='mg', choices=['eig', 'mg', 'bp'])
+    # Store
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
+    # Iterative settings
     parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
                         default=1E-12)
+    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
+                         default=1.0)
+    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
+                        default=1)
+    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
+                        default=4)
 
     args = parser.parse_args()
 
@@ -195,7 +201,8 @@ if __name__ == '__main__':
         
         assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
 
-        system = setup_system(args.B, hierarchy, subdomains)
+        system = setup_system(args.B, hierarchy, subdomains,
+                              mg_params_={'macro_size': args.mes, 'eta': args.eta})
 
         size, value = main(system, args.tol)
 
