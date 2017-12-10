@@ -165,7 +165,7 @@ if __name__ == '__main__':
     subdomains = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for n in [2**i for i in range(4, 4+args.n)]:
+    for level, n in enumerate([2**i for i in range(4, 4+args.n)], 1):
         # Setup the interior/exterior domains
         mesh = Mesh(*(n, )*dim)
         cell_f = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
@@ -192,8 +192,8 @@ if __name__ == '__main__':
 
         size, value = main(system, args.tol)
 
-        msg = 'Problem size %d[%r], current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), size, args.Q, value, history[::-1]))
+        msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
         

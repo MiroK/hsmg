@@ -182,7 +182,7 @@ if __name__ == '__main__':
     interior = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for n in [2**i for i in range(5, 5+args.n)]:
+    for leve, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
         # Embedded
         hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=args.nlevels)
 
@@ -207,8 +207,8 @@ if __name__ == '__main__':
 
         size, value = main(system, args.tol)
 
-        msg = 'Problem size %d, current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
+        msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
+        print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
         
