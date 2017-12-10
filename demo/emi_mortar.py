@@ -170,8 +170,15 @@ if __name__ == '__main__':
         mesh = Mesh(*(n, )*dim)
         cell_f = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
-        for cell in cells(mesh):
-            cell_f[cell] = subdomains.inside(cell.midpoint().array(), False)
+        try:
+            for cell in cells(mesh):
+                cell_f[cell] = subdomains.inside(cell.midpoint().array(), False)
+        # UiO FEniCS 1.6.0 does not have point array
+        except AttributeError:
+            for cell in cells(mesh):
+                mp = cell.midpoint()
+                x = np.array([mp[i] for i in range(dim)])
+                cell_f[cell] = subdomains.inside(x, False)
 
         mesh0 = SubMesh(mesh, cell_f, 0)
         mesh1 = SubMesh(mesh, cell_f, 1)
