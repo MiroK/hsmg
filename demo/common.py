@@ -1,6 +1,6 @@
 from dolfin import MeshFunction, SubsetIterator, CompiledSubDomain
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import plot
+from dolfin import plot, sqrt
 
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from block.iterative import MinRes, CGN
@@ -67,7 +67,7 @@ def cond_solve((AA, bb, BB), tolerance):
     x.randomize()
 
     AAinv = CGN(AA, precond=BB, initial_guess=x,
-                tolerance=tolerance, relativconv=True, maxiter=1500, show=2)
+                tolerance=tolerance, relativeconv=True, maxiter=1500, show=2)
 
     # Compute solution
     x = AAinv * bb

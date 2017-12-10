@@ -21,7 +21,6 @@ from fenics_ii.trace_tools.trace_assembler import trace_assemble
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 
 from block import block_mat, block_assemble
-from block.iterative import MinRes
 from block.algebraic.petsc import LU, InvDiag, AMG
 
 from hsmg import HsNormMG
@@ -60,15 +59,17 @@ def compute_hierarchy(mesh_init, bdry, n, nlevels):
 
 def setup_system(precond, hierarchy, subdomains, mg_params_, beta=1E-10):
     '''Solver'''
-    kappa_e = Constant(1)
+    kappa_e = Constant(1.5)
     kappa_i = Constant(1)
-
-    g = Expression('sin(k*pi*(x[0]+x[1]))', k=3, degree=3)
 
     omega = subdomains.mesh()
     gamma = hierarchy[0]  # EmebeddedMesh
     # Hiereachy as Mesh instances
     hierarchy = [h.mesh for h in hierarchy]
+
+    # g = Expression('sin(k*pi*(x[0]+x[1]))', k=3, degree=3)
+    k = Constant(1)
+    g = sin(k*pi*sum(SpatialCoordinate(gamma.mesh)))
     
     S = FunctionSpace(omega, 'RT', 1)        # sigma
     V = FunctionSpace(omega, 'DG', 0)        # u
@@ -183,7 +184,7 @@ if __name__ == '__main__':
     sizes, history = [], []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
-        hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=4)
+        hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=args.nlevels)
 
         mesh = Mesh(*(n, )*dim)
         # Setup tags of interior domains 
@@ -210,5 +211,6 @@ if __name__ == '__main__':
         print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
-    # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f')
+        
+        # S, V, Q and cond or iter
+        args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f')
