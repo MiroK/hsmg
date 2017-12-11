@@ -164,6 +164,8 @@ if __name__ == '__main__':
                          default=1.0)
     parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
                         default=1)
+    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
+                        default=4)
 
     args = parser.parse_args()
 
@@ -187,7 +189,7 @@ if __name__ == '__main__':
         sizes = []
         for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
-            hierarchy = compute_hierarchy(D, n, nlevels=4)
+            hierarchy = compute_hierarchy(D, n, nlevels=args.nlevels)
             gen = generator(hierarchy, args.tol, InterpolationNorm,
                             mg_params_={'macro_size': args.mes, 'eta': args.eta})
 

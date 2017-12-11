@@ -39,7 +39,6 @@ def parse_data(data_types, line):
 def consistent_subtable(table):
     sizes = [set(row[0] for row in table[key]) for key in table.keys()]
     sizes = sorted(reduce(operator.and_, sizes))
-    print sizes
     
     table = {key: np.array([row for row in table[key]]) for key in table.keys()}
 
@@ -72,14 +71,25 @@ def result_table(path, data_types):
     return consistent_subtable(table)
 
 
-def tex_table(table, full=False):
+def tex_table(table, info, full=False, lowbound=0):
     s_values = sorted(table.keys(), key=float, reverse=True)
     sizes = map(int, [row[0] for row in table[s_values[0]]])
+
+    lb = 0
+    for lb, s in enumerate(sizes):
+        if s >= lowbound:
+            break
+    lowbound = lb
+    print lb
+
+    slice_ = slice(lb, len(sizes))
+
+    sizes = sizes[slice_]
     fmt_table = [map(str, sizes)]
 
     for s in s_values:
         fmt_row = ['%.2f' % float(s)]
-        fmt_row.extend(['%d(%.1f)' % (row[1], row[2]) for row in table[s]])
+        fmt_row.extend(['%d(%.2f)' % (row[1], row[2]) for row in table[s][slice_]])
         fmt_table.append(fmt_row)
     tex = '\n'.join([' & '.join(row) + r'\\' for row in fmt_table[1:]])
 
@@ -87,24 +97,25 @@ def tex_table(table, full=False):
         tex = r'''\begin{table}
 \begin{center}
   \footnotesize{
-    \begin{tabular}{c|%(col_format)s}
+    \begin{tabular}{l|%(col_format)s}
         \hline
-        \multirow{2}{*}{$s$} & \multicolumn{%(ncols)d}{|c}{$\dim V_h$}\\
-                           \cline{2-%(last_col)d}
-                           & %(dims)s\\
+        \diagbox{$s$}{$\dim{V_J}$} & %(sizes)s \\
         \hline
         %(body)s
         \hline
       \end{tabular}
     }
+\iffalse
+%(header)s
+\fi
   \end{center}
 \end{table}
 
-''' % {'col_format': 'c'*len(sizes),
-       'ncols': len(sizes),
-       'last_col': len(sizes)+1,
+''' % {'col_format': 'l'*len(sizes),
+       'sizes': ' & '.join(fmt_table[0]),
        'dims': ' & '.join(fmt_table[0]),
-       'body': tex}
+       'body': tex,
+       'header': info}
 
     return tex
 
@@ -159,6 +170,17 @@ def TexReport(path, mode='w'):
 
     yield f
 
+    
+def caption_info(path):
+    header = ''
+    with open(path, 'r') as f:
+        for line in f:
+            if line.startswith('#'):
+                header = line
+                break
+    assert header
+    return header
+
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -167,44 +189,46 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('files', help='txt files', nargs='+')
     parser.add_argument('-r', '--report', help='generate tex', default='', type=str)
-
+    parser.add_argument('-lb', help='size of Vj where to chop the results', type=int,
+                        default=0)
     args = parser.parse_args()
 
     if not args.report:
         for f in args.files:
+            info = caption_info(f)
             table = result_table(f, (int, int, float))
-            tex = tex_table(table)
-            print '='*79
+            tex = tex_table(table, info, True, lowbound=args.lb)
+            print '%', '='*79
             print tex
             
-    else:
-        with TexReport(args.report) as report:
-            for f in args.files:
-                root = os.path.splitext(f)[0]
-                table = result_table(f, (int, int, float))
+#     else:
+#         with TexReport(args.report) as report:
+#             for f in args.files:
+#                 root = os.path.splitext(f)[0]
+#                 table = result_table(f, (int, int, float))
 
-                # tex = tex_table(table, full=True)
-                # report.write(tex)
+#                 # tex = tex_table(table, full=True)
+#                 # report.write(tex)
 
-                report.write(r'\begin{filecontents*}{%s.tikz}' % root)
-                report.write('\n')
+#                 report.write(r'\begin{filecontents*}{%s.tikz}' % root)
+#                 report.write('\n')
 
-                tikz = tikz_table(table)
-                report.write(tikz)
+#                 tikz = tikz_table(table)
+#                 report.write(tikz)
 
-                report.write(r'\end{filecontents*}')
-                report.write('\n')
+#                 report.write(r'\end{filecontents*}')
+#                 report.write('\n')
 
-        with TexReport(args.report, 'a') as report:
-            body = r'''\begin{document}
-\begin{figure}
-\includegraphics[width=0.48\textwidth]{./h10.tikz}
-\includegraphics[width=0.48\textwidth]{./h1_D1.tikz}\\
-%
-\includegraphics[width=0.48\textwidth]{./h1_bcs.tikz}
-\includegraphics[width=0.48\textwidth]{./h1_D012.tikz}\\
-\end{figure}
-\end{document}'''
-            report.write(body)
+#         with TexReport(args.report, 'a') as report:
+#             body = r'''\begin{document}
+# \begin{figure}
+# \includegraphics[width=0.48\textwidth]{./h10.tikz}
+# \includegraphics[width=0.48\textwidth]{./h1_D1.tikz}\\
+# %
+# \includegraphics[width=0.48\textwidth]{./h1_bcs.tikz}
+# \includegraphics[width=0.48\textwidth]{./h1_D012.tikz}\\
+# \end{figure}
+# \end{document}'''
+#             report.write(body)
 
 
