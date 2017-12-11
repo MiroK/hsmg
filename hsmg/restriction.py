@@ -2,7 +2,7 @@ from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
 from macro_element import cell_patch
 
 from dolfin import FunctionSpace, Cell, Point, warning, as_backend_type
-from dolfin import FacetFunction, Constant, DirichletBC
+from dolfin import MeshFunction, Constant, DirichletBC
 from dolfin import Mesh, cells, Expression, Function
 from dolfin import warning
 
@@ -144,7 +144,7 @@ def Dirichlet_dofs(V, bdry, mesh_hierarchy):
     bdry_dofs = []    
     for mesh in mesh_hierarchy:
         V = FunctionSpace(mesh, elm)
-        boundary = FacetFunction('size_t', mesh, 0)
+        boundary = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         bdry.mark(boundary, 1)
 
         bc = bc_def(V, boundary)

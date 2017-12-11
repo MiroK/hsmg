@@ -7,7 +7,7 @@ import pytest
 
 def CurveIn3d(n):
     mesh = UnitCubeMesh(n, n, n)    
-    f = EdgeFunction('size_t', mesh, 0)
+    f = MeshFunction('size_t', mesh, 1, 0)
     for x0, x1 in (('x[0]', 'x[1]'), ('x[1]', 'x[2]'), ('x[0]', 'x[2]')):
         for i in (0, 1):
             for j in (0, 1):

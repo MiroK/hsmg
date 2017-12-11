@@ -1,6 +1,6 @@
 from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
-from dolfin import FacetFunction, TrialFunction, TestFunction
+from dolfin import TrialFunction, TestFunction, MeshFunction
 from dolfin import Vector
 from dolfin import CellSize, avg, dot, jump, dS, ds
 
@@ -71,7 +71,7 @@ class HsNormMGBase(block_base):
             bdry_dofs = restriction.Dirichlet_dofs(V, bdry, mesh_hierarchy)
 
             mesh = mesh_hierarchy[0]
-            bdries = FacetFunction('size_t', mesh, 0)
+            bdries = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
             bdry.mark(bdries, 1)
             bcs_V = DirichletBC(V, Constant(0), bdries, 1)
         else:

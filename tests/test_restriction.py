@@ -1,7 +1,7 @@
 from dolfin import FunctionSpace, interpolate, Expression, PETScMatrix
 from dolfin import UnitSquareMesh, FiniteElement, UnitIntervalMesh, near
 from dolfin import DomainBoundary, CompiledSubDomain, plot
-from dolfin import FacetFunction, EdgeFunction, UnitCubeMesh
+from dolfin import MeshFunction, UnitCubeMesh
 
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
@@ -83,7 +83,7 @@ def test_3d_P1():
 @pytest.mark.parametrize('family', ['Lagrange', 'Discontinuous Lagrange'])        
 def test_2d1d(family):
     mesh = UnitSquareMesh(4, 4)    
-    gamma = FacetFunction('size_t', mesh, 0)
+    gamma = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
     CompiledSubDomain('near(x[0], x[1])').mark(gamma, 1)
 
     mesh = EmbeddedMesh(mesh, gamma, 1).mesh
@@ -96,7 +96,7 @@ def test_2d1d(family):
 @pytest.mark.parametrize('family', ['Lagrange', 'Discontinuous Lagrange'])        
 def test_3d1d(family):
     mesh = UnitCubeMesh(2, 2, 2)
-    gamma = EdgeFunction('size_t', mesh, 0)
+    gamma = MeshFunction('size_t', mesh, 1, 0)
     CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(gamma, 1)
 
     mesh = EmbeddedMesh(mesh, gamma, 1).mesh
@@ -109,7 +109,7 @@ def test_3d1d(family):
 @pytest.mark.parametrize('family', ['Lagrange', 'Discontinuous Lagrange'])        
 def test_3d2d(family):
     mesh = UnitCubeMesh(2, 2, 2)
-    gamma = FacetFunction('size_t', mesh, 0)
+    gamma = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
     CompiledSubDomain('near(x[0], 0)').mark(gamma, 1)
 
     mesh = EmbeddedMesh(mesh, gamma, 1).mesh

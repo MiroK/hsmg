@@ -2,7 +2,7 @@ from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap, vertex_patch
 from hsmg.restriction import Dirichlet_dofs
 
-from dolfin import (EdgeFunction, CompiledSubDomain, BoundaryMesh,
+from dolfin import (CompiledSubDomain, BoundaryMesh,
                     UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh,
                     FunctionSpace, FiniteElement, DomainBoundary,
                     triangle, interval, tetrahedron,
