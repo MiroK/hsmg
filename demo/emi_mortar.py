@@ -194,8 +194,9 @@ if __name__ == '__main__':
 
         msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))
+        print 'Coarsest solve has %d cells' % hierarchy[-1].mesh.num_cells()
         history.append((value, ))
         sizes.append(size)
         
         # spaces and cond or iter
-        args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %d %.16f')
+        args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %d %g')

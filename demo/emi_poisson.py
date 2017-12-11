@@ -37,7 +37,7 @@ interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
             3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
 
 
-def compute_hierarchy(mesh_init, bdry, n, nlevels):
+def compute_hierarchy(mesh_init, dim, bdry, n, nlevels):
     '''
     The mesh where we want to solve is n. Here we compute previous
     levels for setting up multrid. nlevels in total.
@@ -45,7 +45,13 @@ def compute_hierarchy(mesh_init, bdry, n, nlevels):
     assert nlevels > 0
 
     if nlevels == 1:
-        mesh = mesh_init(*(n, )*dim)
+        if n != 2:
+            mesh = mesh_init(*(n, )*dim)
+        else:
+            if dim == 2:
+                mesh = RectangleMesh(Point(0.25, 0.25), Point(0.75, 0.75), 1, 1)
+            else:
+                mesh = BoxMesh(Point(0.25, 0.25, 0.25), Point(0.75, 0.75, 0.75), 1, 1, 1)
 
         markers = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         bdry.mark(markers, 1)
@@ -53,11 +59,11 @@ def compute_hierarchy(mesh_init, bdry, n, nlevels):
         # NOTE: !(EmbeddedMesh <:  Mesh)
         return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim)]
 
-    return compute_hierarchy(mesh_init, bdry, n, 1) + \
-        compute_hierarchy(mesh_init, bdry, n/2, nlevels-1)
+    return compute_hierarchy(mesh_init, dim, bdry, n, 1) + \
+        compute_hierarchy(mesh_init, dim, bdry, n/2, nlevels-1)
 
 
-def setup_system(precond, hierarchy, subdomains, mg_params_, beta=1E-10):
+def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     '''Solver'''
     kappa_e = Constant(1.5)
     kappa_i = Constant(1)
@@ -182,9 +188,9 @@ if __name__ == '__main__':
     interior = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for leve, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
+    for level, n in enumerate([2**i for i in range(4, 4+args.n)], 1):
         # Embedded
-        hierarchy = compute_hierarchy(Mesh, gamma, n, nlevels=args.nlevels)
+        hierarchy = compute_hierarchy(Mesh, dim, gamma, n, nlevels=args.nlevels)
 
         mesh = Mesh(*(n, )*dim)
         # Setup tags of interior domains 
@@ -209,8 +215,9 @@ if __name__ == '__main__':
 
         msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))
+        print 'Coarsest solve has %d cells' % hierarchy[-1].mesh.num_cells()
         history.append((value, ))
         sizes.append(size)
         
         # S, V, Q and cond or iter
-        args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f')
+        args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %g')

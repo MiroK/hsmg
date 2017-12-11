@@ -39,7 +39,8 @@ def parse_data(data_types, line):
 def consistent_subtable(table):
     sizes = [set(row[0] for row in table[key]) for key in table.keys()]
     sizes = sorted(reduce(operator.and_, sizes))
-
+    print sizes
+    
     table = {key: np.array([row for row in table[key]]) for key in table.keys()}
 
     return table
