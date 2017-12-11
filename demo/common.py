@@ -143,3 +143,29 @@ __ISECT__ = {'-12': 'near(x[0], 0) || near (x[1], 1)',
 __NOT_ISECT__ = {'12': 'near(x[0], x[1])',
                  '23': 'near(x[0], x[1])',
                  '13': 'near(x[0], x[1]) && near(x[1], x[2])'}
+
+
+def compute_path(args, id):
+    '''Computes the file name for storing'''
+    # No storing
+    if args.log == '': return ''
+
+    path = args.log
+    folder = os.path.dirname(path)
+    file = os.path.basename(path)
+
+    # What the user said
+    if file.lower() != 'from_args':
+        return path
+
+    keys = set(args.__dict__.keys())
+    keys.remove('log')
+
+    args = args.__dict__
+    # Compute
+    file = '_'.join([id] + map(lambda k: '%s%s' % (k.upper(), str(args[k])), keys))
+
+    path = os.path.join(folder, file)
+    
+    return '.'.join([path, 'txt'])
+

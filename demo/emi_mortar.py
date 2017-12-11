@@ -125,7 +125,7 @@ def setup_system((mesh0, mesh1), hierarchy, precond, mg_params_):
 if __name__ == '__main__':
     import argparse
     import numpy as np
-    from common import log_results, iter_solve, cond_solve
+    from common import log_results, iter_solve, cond_solve, compute_path
 
     
     parser = argparse.ArgumentParser()
@@ -153,6 +153,9 @@ if __name__ == '__main__':
                         default=4)
 
     args = parser.parse_args()
+
+    # See how to store
+    args.log = compute_path(args, 'mortar')
 
     dim = args.D
     Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]

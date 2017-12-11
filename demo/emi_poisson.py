@@ -148,7 +148,7 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
 if __name__ == '__main__':
     import argparse
     import numpy as np
-    from common import log_results, iter_solve, cond_solve
+    from common import log_results, iter_solve, cond_solve, compute_path
 
     
     parser = argparse.ArgumentParser()
@@ -176,6 +176,9 @@ if __name__ == '__main__':
                         default=4)
 
     args = parser.parse_args()
+
+    # See how to store
+    args.log = compute_path(args, 'hdiv')
 
     dim = args.D
     Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
