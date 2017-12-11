@@ -8,7 +8,7 @@
 # p in H0.5(Gamma) such that 
 
 # (kappa^-1 sigma, tau) - (u, div tau) + (p, tau . n) = 0
-# -(div sigma, v)       + (u, v)                      = 0
+# -(div sigma, v)       - (u, v)                      = 0
 # (sigma . n, q)        - beta*(p, q)                 = (g, q)
 #
 # beta term is due to the system being part of timestepping.
@@ -97,7 +97,8 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     a02 = inner(dot(tau('+'), n_gamma), p)*dxGamma
 
     a10 = -inner(div(sigma), v)*dX
-    a11 = inner(u, v)*dX
+    # FIXme: double check sign here
+    a11 = -inner(u, v)*dX
 
     a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
     a22 = -Constant(beta)*inner(p, q)*dxGamma   
