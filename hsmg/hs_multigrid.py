@@ -190,8 +190,13 @@ class HSAS(object):
         Ml = sp.lil_matrix(M)
         for dofs in dms:
             # Local matrices:
-            Aloc = Al[np.ix_(dofs,dofs)].todense()
-            Mloc = Ml[np.ix_(dofs,dofs)].todense()
+            try:  # Raises on UiO singularity 2017.1. image
+                Aloc = Al[np.ix_(dofs,dofs)].todense()
+                Mloc = Ml[np.ix_(dofs,dofs)].todense()
+            except AttributeError:
+                Aloc = np.array([[Al[np.ix_(dofs,dofs)]]])
+                Mloc = np.array([[Ml[np.ix_(dofs,dofs)]]])
+            
             # solve local eigenvalue problem:
             lam, Uloc = la.eigh(Aloc, b=Mloc, type=1)
             Uloc = np.asarray( Uloc )
