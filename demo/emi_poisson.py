@@ -192,7 +192,7 @@ if __name__ == '__main__':
     interior = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for level, n in enumerate([2**i for i in range(4, 4+args.n)], 1):
+    for level, n in enumerate([2**i for i in range(3, 4+args.n)], 1):
         # Embedded
         hierarchy = compute_hierarchy(Mesh, dim, gamma, n, nlevels=args.nlevels)
 

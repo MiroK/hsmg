@@ -168,7 +168,7 @@ if __name__ == '__main__':
     subdomains = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for level, n in enumerate([2**i for i in range(4, 4+args.n)], 1):
+    for level, n in enumerate([2**i for i in range(3, 4+args.n)], 1):
         # Setup the interior/exterior domains
         mesh = Mesh(*(n, )*dim)
         cell_f = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
