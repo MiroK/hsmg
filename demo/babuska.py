@@ -21,7 +21,7 @@ from dolfin import *
 import numpy as np
 
 
-def setup_system(precond, meshes, mg_params_):
+def setup_system(rhs_data, precond, meshes, mg_params_):
     '''Solver'''
     omega_mesh = meshes[0]
     # Extract botttom edge meshes
@@ -49,9 +49,14 @@ def setup_system(precond, meshes, mg_params_):
     a00 = inner(grad(u), grad(v))*dx + inner(u, v)*dx
     a01 = inner(p, v)*dxGamma
     a10 = inner(u, q)*dxGamma
-    
-    L0 = inner(Constant(1), v)*dx
-    L1 = inner(Expression('sin(pi*(x[0] + x[1]))', degree=1), q)*dxGamma
+
+    if rhs_data is None:
+        f, g = Constant(1), Expression('sin(pi*(x[0] + x[1]))', degree=1)
+    else:
+        f, g = rhs_data
+        
+    L0 = inner(f, v)*dx
+    L1 = inner(g, q)*dxGamma
 
     # Blocks
     A00 = assemble(a00)
@@ -87,7 +92,7 @@ def setup_system(precond, meshes, mg_params_):
     # The preconditioner
     BB = block_mat([[P00, 0], [0, P11]])
 
-    return AA, bb, BB
+    return AA, bb, BB, [V, Q]
 
     
 def compute_hierarchy(mesh_init, n, nlevels):
@@ -109,7 +114,7 @@ def compute_hierarchy(mesh_init, n, nlevels):
 if __name__ == '__main__':
     import argparse
     import numpy as np
-    from common import log_results, cond_solve, iter_solve
+    from common import log_results, cond_solve, iter_solve, direct_solve
 
     
     parser = argparse.ArgumentParser()
@@ -119,7 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
-                        default='iters', choices=['iters', 'cond'])
+                        default='iters', choices=['iters', 'cond', 'sane'])
     # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
                         default='MG', choices=['eig', 'mg', 'bp'])
@@ -135,27 +140,47 @@ if __name__ == '__main__':
                         default=1.0)
     parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
                         default=1)
-
+    # Keep an eye on the error of the converged solution
+    parser.add_argument('-error', type=int, help='Compare to analytical solution',
+                        default=0)
 
     args = parser.parse_args()
 
     dim = args.D
     Mesh = {2: UnitSquareMesh, 3: UnitCubeMesh}[dim]
 
-    main = iter_solve if args.Q == 'iters' else cond_solve
-    
+    main = {'iters': iter_solve,
+            'cond': cond_solve,
+            'sane': direct_solve}[args.Q]
+
+    # What rhs to use and monitoring
+    if args.error:
+        from error_convergence import monitor_error, H1_norm, Hs_norm
+        from mms_setups import babuska_H1_2d
+
+        up, fg = babuska_H1_2d()
+        
+        memory = []
+        monitor = monitor_error(up, [H1_norm, Hs_norm(0.5)], memory)
+    else:
+        memory, fg, monitor = None, None, None
+
+        
     sizes, history = [], []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
         print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
         
-        system = setup_system(args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
-        size, value = main(system, args.tol)
+        setup = setup_system(fg, args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
+        size, value, u = main(setup, args.tol)
+
+        if monitor is not None: monitor.send(u)
 
         msg = 'Problem size %d[%s], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), size, args.Q, value, history[::-1]))
         history.append((value, ))
         sizes.append(size)
+        
     # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %.16f')
+    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %.16f', cvrg=memory)

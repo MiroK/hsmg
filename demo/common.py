@@ -1,14 +1,15 @@
 from dolfin import MeshFunction, SubsetIterator, CompiledSubDomain
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import plot, sqrt
+from dolfin import plot, sqrt, Function
 
+from fenics_ii.utils.direct import dolfin_solve
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from block.iterative import MinRes, CGN
 import numpy as np
 import os
 
 
-def log_results(args, size, results, name='', fmt='%.18e'):
+def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
     '''Cols of size -> result'''
     
     nrows = len(size)
@@ -36,11 +37,28 @@ def log_results(args, size, results, name='', fmt='%.18e'):
             header = ', '.join([name] + header)
 
             np.savetxt(handle, table, fmt=fmt, header=header)
+    # Saving error again analytical solution
+    if cvrg is not None:
+        path = '_'.join(['error', args.log])
+        np.savetxt(path, cvrg)
 
     return args.log
 
 
-def iter_solve((AA, bb, BB), tolerance):
+def direct_solve((AA, bb, BB, W), tolerance):
+    # Compute solution. Note this are arrays not Vectors
+    x = dolfin_solve(AA, bb)
+    
+    niters = -1
+    size = [xi.size for xi in x]
+    # x to functions
+    w = map(Function, W)
+    [wi.vector().set_local(xi) for wi, xi in zip(w, x)]
+
+    return size, niters, w
+
+
+def iter_solve((AA, bb, BB, W), tolerance):
     '''MinRes solve to get iteration counts'''
     x = AA.create_vec()
     x.randomize()
@@ -57,11 +75,13 @@ def iter_solve((AA, bb, BB), tolerance):
 
     niters = len(AAinv.residuals) - 1
     size = [xi.size() for xi in x]
-    
-    return size, niters
+    # x to functions
+    w = [Function(Wi, xi) for Wi, xi in zip(W, x)]
+
+    return size, niters, w
 
 
-def cond_solve((AA, bb, BB), tolerance):
+def cond_solve((AA, bb, BB, W), tolerance):
     '''Solve CGN to get the estimate of condition number'''
     x = AA.create_vec()
     x.randomize()
@@ -77,8 +97,11 @@ def cond_solve((AA, bb, BB), tolerance):
 
     lmin, lmax = np.sort(np.abs(AAinv.eigenvalue_estimates()))[[0, -1]]
     cond = sqrt(lmax/lmin)
+
+    # x to functions
+    w = [Function(Wi, xi) for Wi, xi in zip(W, x)]
     
-    return size, cond
+    return size, cond, w
 
 
 def compute_hierarchy(dim, n, nlevels):
@@ -168,4 +191,3 @@ def compute_path(args, id):
     path = os.path.join(folder, file)
     
     return '.'.join([path, 'txt'])
-
