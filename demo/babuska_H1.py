@@ -29,8 +29,8 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     gamma_mesh = None
     for mesh in meshes:
         facet_f = MeshFunction('size_t', mesh, mesh.topology().dim() - 1, 0)
-        CompiledSubDomain('near(x[0], 0)').mark(facet_f, 1)
-        # DomainBoundary().mark(facet_f, 1)
+        # CompiledSubDomain('near(x[0], 0)').mark(facet_f, 1)
+        DomainBoundary().mark(facet_f, 1)
         gmesh = EmbeddedMesh(mesh, facet_f, 1)        
 
         if gamma_mesh is None: gamma_mesh = gmesh
