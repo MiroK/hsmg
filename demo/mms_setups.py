@@ -42,3 +42,20 @@ def babuska_H1_2d():
     fg = map(as_expression, (f, g))
 
     return up, fg
+
+
+def babuska_H1_3d():
+    '''
+    Exact solution for -Delta u + u = f on [0, 1]^3, Tu = g on boundary.
+    '''
+    x, y, z = sp.symbols('x[0], x[1], x[2]')
+    u = sp.cos(sp.pi*x*(1-x)*y*(1-y)*z*(1-z))
+    p = sp.S(0)  # Normal stress
+
+    f = -u.diff(x, 2) - u.diff(y, 2) - u.diff(z, 2) + u
+    g = u
+
+    up = map(as_expression, (u, p))
+    fg = map(as_expression, (f, g))
+
+    return up, fg

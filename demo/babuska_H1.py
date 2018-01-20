@@ -120,7 +120,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # What
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
-                         default=2)
+                         default=2, choices=[2, 3])
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
     parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
@@ -156,18 +156,21 @@ if __name__ == '__main__':
     # What rhs to use and monitoring
     if args.error:
         from error_convergence import monitor_error, H1_norm, Hs_norm
-        from mms_setups import babuska_H1_2d
+        from mms_setups import babuska_H1_2d, babuska_H1_3d
 
-        up, fg = babuska_H1_2d()
+        if dim == 2:
+            up, fg = babuska_H1_2d()
+        else:
+            up, fg = babuska_H1_3d()
         
         memory = []
-        monitor = monitor_error(up, [H1_norm, Hs_norm(0.5)], memory)
+        monitor = monitor_error(up, [H1_norm, Hs_norm(-0.5)], memory)
     else:
         memory, fg, monitor = None, None, None
 
-        
+    init_level = 5
     sizes, history = [], []
-    for n in [2**i for i in range(5, 5+args.n)]:
+    for n in [2**i for i in range(init_level, init_level+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
         print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]

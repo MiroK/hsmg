@@ -47,13 +47,10 @@ def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
 
 def direct_solve((AA, bb, BB, W), tolerance):
     # Compute solution. Note this are arrays not Vectors
-    x = dolfin_solve(AA, bb)
+    w = dolfin_solve(AA, bb, method='mumps', spaces=W)
     
     niters = -1
-    size = [xi.size for xi in x]
-    # x to functions
-    w = map(Function, W)
-    [wi.vector().set_local(xi) for wi, xi in zip(w, x)]
+    size = [wi.function_space().dim() for wi in w]
 
     return size, niters, w
 
