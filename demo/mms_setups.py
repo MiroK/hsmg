@@ -59,3 +59,22 @@ def babuska_H1_3d():
     fg = map(as_expression, (f, g))
 
     return up, fg
+
+
+def babuska_Hdiv_2d():
+    '''
+    Exact solution for -Delta u + u = f on [0, 1]^2, grad(u).n = g on boundary.
+    The mixed form. With sigma = grad(u) and -u = p on the boundary
+    '''
+    x, y  = sp.symbols('x[0], x[1]')
+    u = sp.cos(sp.pi*x*(1-x)*y*(1-y))
+    sigma = (u.diff(x, 1), u.diff(y, 1))
+    p = -u
+
+    f = -u.diff(x, 2) - u.diff(y, 2) + u
+    g = sp.S(0)
+
+    up = map(as_expression, (sigma, u, p))
+    fg = map(as_expression, (f, g))
+
+    return up, fg
