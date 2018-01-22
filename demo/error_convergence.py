@@ -37,6 +37,8 @@ H10_norm = lambda u, uh: errornorm(u, uh, 'H10', degree_rise=1)
 L2_norm = lambda u, uh: errornorm(u, uh, 'L2', degree_rise=1)
 Hdiv_norm = lambda u, uh: errornorm(u, uh, 'Hdiv', degree_rise=1)
 Hdiv0_norm = lambda u, uh: errornorm(u, uh, 'Hdiv0', degree_rise=1)
+Hcurl_norm = lambda u, uh: errornorm(u, uh, 'Hcurl', degree_rise=1)
+Hcurl0_norm = lambda u, uh: errornorm(u, uh, 'Hcurl0', degree_rise=1)
 
 
 def Hs_norm(s):
