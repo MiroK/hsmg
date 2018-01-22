@@ -1,23 +1,3 @@
-# Here we solve the Babuska problem
-#   
-#   -\Delta u + u = f  in \Omega
-#       grad(u).n = g  in \Gamma
-#
-# A mixed for is used with
-#
-#     sigma - grad(u) = 0
-#     div(sigma) - u = -f
-#     sigma.n        = g
-#
-# So we endup with
-#    (sigma, tau) + (u, div(tau))  (p, tau.n) = 0
-#    (dig(sigma), v) -(u, v)                   = -(f, v)
-#    (sigma.n, q)                             = (g, q)
-#
-# Enforcing bcs weakly leads to saddle point formulation with Lagrange
-# multiplier in H^0.5 requiring Schur complement preconditioner based
-# on -\Delta ^ 0.5. Here p = -u on the boundary
-
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
@@ -50,67 +30,54 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
         hierarchy.append(gmesh.mesh)
         
     if rhs_data is None:
-        f, g = Constant(1), Expression('sin(pi*(x[0] + x[1]))', degree=1)
+        f_rhs, g_rhs = Constant((1, )*gdim), Expression('sin(pi*(x[0] + x[1]))', degree=1)
     else:
-        f, g = rhs_data
+        f_rhs, g_rhs = rhs_data
 
-    S = FunctionSpace(omega_mesh, 'RT', 1)        # sigma
-    V = FunctionSpace(omega_mesh, 'DG', 0)        # u
-    Q = FunctionSpace(gamma_mesh.mesh, 'DG', 0)   # p
-    W = [S, V, Q]
-
-    sigma, u, p = map(TrialFunction, W)
-    tau, v, q = map(TestFunction, W)
+    S = FunctionSpace(omega_mesh, 'RT', 1)
+    Q = FunctionSpace(gamma_mesh.mesh, 'DG', 0)
+    W = [S, Q]
+    
+    sigma, p = map(TrialFunction, W)
+    tau, q = map(TestFunction, W)
 
     dxGamma = dx(domain=gamma_mesh.mesh)        
     n_gamma = gamma_mesh.normal('+')          # Outer
-
-    # System - for symmetry
-    a00 = inner(sigma, tau)*dx
-    a01 = inner(u, div(tau))*dx
-    a02 = inner(dot(tau('+'), n_gamma), p)*dxGamma
     
-    a10 = inner(div(sigma), v)*dx
-    a11 = -inner(u, v)*dx # FIXme: double check sign here
-    
-    a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
+    a00 = inner(div(sigma), div(tau))*dx + inner(sigma, tau)*dx
+    a01 = inner(dot(tau('+'), n_gamma), p)*dxGamma
+    a10 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
 
-    L0 = inner(Constant((0, )*gdim), tau)*dx
-    L1 = inner(-f, v)*dx
-    L2 = inner(g, q)*dxGamma
+    L0 = inner(f_rhs, tau)*dx
+    L1 = inner(g_rhs, q)*dxGamma
 
-    A00, A01, A10, A11 = map(assemble, (a00, a01, a10, a11))
-    A02 = trace_assemble(a02, gamma_mesh)
-    A20 = trace_assemble(a20, gamma_mesh)
+    A00 = assemble(a00)
+    A01 = trace_assemble(a01, gamma_mesh)
+    A10 = trace_assemble(a10, gamma_mesh)
 
-    AA = block_mat([[A00, A01, A02],
-                    [A10, A11,   0],
-                    [A20, 0,     0]])
+    AA = block_mat([[A00, A01],
+                    [A10,   0]])
 
-    bb = block_vec(map(assemble, (L0, L1, L2)))
+    bb = block_vec(map(assemble, (L0, L1)))
 
-    print 'Assembled AA'
-    # Preconditioner blocks
-    P00 = LU(assemble(inner(sigma, tau)*dx + inner(div(sigma), div(tau))*dx))
-    P11 = InvDiag(assemble(inner(u, v)*dx))
+    P00 = LU(A00)
 
     bdry = None
     mg_params = {'nlevels': len(hierarchy)}
-    mg_params.update(mg_params_)
-    
-    # Trace of Hdiv is H^{-1/2} and the dual is H^{1/2}
+    mg_params.update(mg_params)
+
     if precond == 'mg':
-        P22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
+        P11 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
     elif precond == 'eig':
-        P22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)            # Bonito
+        # Bonito
+        P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
     else:
         bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
                      'solver': 'cholesky'}
-        P22 = BP_H1Norm(Q, 0.5, bp_params)
-    print 'Setup B'
+        P11 = BP_H1Norm(Q, 0.5, bp_params)
         
     # The preconditioner
-    BB = block_mat([[P00, 0, 0], [0, P11, 0], [0, 0, P22]])
+    BB = block_mat([[P00, 0], [0, P11]])
 
     return AA, bb, BB, W
 
@@ -160,15 +127,15 @@ if __name__ == '__main__':
     # What rhs to use and monitoring
     if args.error:
         from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
-        from mms_setups import babuska_Hdiv_2d, babuska_Hdiv_3d
+        from mms_setups import grad_div_2d
 
         if dim == 2:
-            up, fg = babuska_Hdiv_2d()
+            up, fg = grad_div_2d()
         else:
-            up, fg = babuska_Hdiv_3d()
+            assert NotImplemented
         
         memory = []
-        monitor = monitor_error(up, [Hdiv_norm, L2_norm, Hs_norm(0.5)], memory)
+        monitor = monitor_error(up, [Hdiv_norm, Hs_norm(0.5)], memory)
     else:
         memory, fg, monitor = None, None, None
 
@@ -190,4 +157,4 @@ if __name__ == '__main__':
         sizes.append(size)
         
     # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f', cvrg=memory)
+    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %.16f', cvrg=memory)

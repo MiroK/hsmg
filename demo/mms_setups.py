@@ -78,3 +78,51 @@ def babuska_Hdiv_2d():
     fg = map(as_expression, (f, g))
 
     return up, fg
+
+
+def babuska_Hdiv_3d():
+    '''
+    Exact solution for -Delta u + u = f on [0, 1]^3, grad(u).n = g on boundary.
+    The mixed form. With sigma = grad(u) and -u = p on the boundary
+    '''
+    x, y, z = sp.symbols('x[0], x[1], x[2]')
+    u = sp.cos(sp.pi*x*(1-x)*y*(1-y)*z*(1-z))
+    sigma = (u.diff(x, 1), u.diff(y, 1), u.diff(z, 1))
+    p = -u
+
+    f = -u.diff(x, 2) - u.diff(y, 2) - u.diff(z, 2) + u
+    g = sp.S(0)
+
+    up = map(as_expression, (sigma, u, p))
+    fg = map(as_expression, (f, g))
+
+    return up, fg
+
+
+def grad_div_2d():
+    '''
+    -grad(div(sigma)) + sigma = f in [0, 1]^2
+                      sigma.n = g on the boundary
+
+    To be solved with Lagrange multiplier to enforce bcs rather then
+    enforcing them on the function space level.
+    '''
+
+    x, y = sp.symbols('x[0] x[1]')
+
+    sigma = sp.Matrix([sp.sin(sp.pi*x*(1-x)*y*(1-y)),
+                       sp.sin(2*sp.pi*x*(1-x)*y*(1-y))])
+
+    sp_div = lambda f: f[0].diff(x, 1) + f[1].diff(y, 1)
+
+    sp_grad = lambda f: sp.Matrix([f.diff(x, 1), f.diff(y, 1)])
+
+    f = -sp_grad(sp_div(sigma)) + sigma
+    g = sp.S(0)
+
+    sigma_exact = as_expression(sigma)
+    # It's quite nice that you get surface divergence as the extra var
+    p_exact = as_expression(sp_div(-sigma)) 
+    f_rhs, g_rhs = map(as_expression, (f, g))
+
+    return (sigma_exact, p_exact), (f_rhs, g_rhs)
