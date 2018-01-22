@@ -132,7 +132,7 @@ if __name__ == '__main__':
         if dim == 2:
             up, fg = grad_div_2d()
         else:
-            assert NotImplemented
+            raise NotImplementedError
         
         memory = []
         monitor = monitor_error(up, [Hdiv_norm, Hs_norm(0.5)], memory)
