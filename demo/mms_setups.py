@@ -128,6 +128,36 @@ def grad_div_2d():
     return (sigma_exact, p_exact), (f_rhs, g_rhs)
 
 
+def grad_div_3d():
+    '''
+    -grad(div(sigma)) + sigma = f in [0, 1]^3
+                      sigma.n = g on the boundary
+
+    To be solved with Lagrange multiplier to enforce bcs rather then
+    enforcing them on the function space level.
+    '''
+
+    x, y, z = sp.symbols('x[0] x[1] x[2]')
+
+    sigma = sp.Matrix([sp.sin(sp.pi*x*(1-x)*y*(1-y)*z*(1-z)),
+                       sp.sin(2*sp.pi*x*(1-x)*y*(1-y)*z*(1-z)),
+                       sp.sin(4*sp.pi*x*(1-x)*y*(1-y)*z*(1-z))])
+
+    sp_div = lambda f: f[0].diff(x, 1) + f[1].diff(y, 1) + f[2].diff(z, 1)
+
+    sp_grad = lambda f: sp.Matrix([f.diff(x, 1), f.diff(y, 1), f.diff(z, 1)])
+
+    f = -sp_grad(sp_div(sigma)) + sigma
+    g = sp.S(0)
+
+    sigma_exact = as_expression(sigma)
+    # It's quite nice that you get surface divergence as the extra var
+    p_exact = as_expression(sp_div(-sigma)) 
+    f_rhs, g_rhs = map(as_expression, (f, g))
+
+    return (sigma_exact, p_exact), (f_rhs, g_rhs)
+
+
 def curl_curl_2d():
     '''
     rot(curl(sigma)) + sigma = f in [0, 1]^2

@@ -127,19 +127,19 @@ if __name__ == '__main__':
     # What rhs to use and monitoring
     if args.error:
         from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
-        from mms_setups import grad_div_2d
+        from mms_setups import grad_div_2d, grad_div_3d
 
         if dim == 2:
             up, fg = grad_div_2d()
         else:
-            raise NotImplementedError
+            up, fg = grad_div_3d()
         
         memory = []
         monitor = monitor_error(up, [Hdiv_norm, Hs_norm(0.5)], memory)
     else:
         memory, fg, monitor = None, None, None
 
-    init_level = 5
+    init_level = 2 if args.Q == 'sane' else args.nlevels
     sizes, history = [], []
     for n in [2**i for i in range(init_level, init_level+args.n)]:
         # Embedded

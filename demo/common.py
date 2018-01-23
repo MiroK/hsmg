@@ -51,6 +51,7 @@ def direct_solve((AA, bb, BB, W), tolerance):
     
     niters = -1
     size = [wi.function_space().dim() for wi in w]
+    info('Solving linear system of size %d' % size)
 
     return size, niters, w
 
