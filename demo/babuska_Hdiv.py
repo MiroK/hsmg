@@ -11,7 +11,7 @@
 #
 # So we endup with
 #    (sigma, tau) + (u, div(tau))  (p, tau.n) = 0
-#    (dig(sigma), v) -(u, v)                   = -(f, v)
+#    (dig(sigma), v) -(u, v)                  = -(f, v)
 #    (sigma.n, q)                             = (g, q)
 #
 # Enforcing bcs weakly leads to saddle point formulation with Lagrange
@@ -114,80 +114,20 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
 
     return AA, bb, BB, W
 
-# --------------------------------------------------------------------
 
-if __name__ == '__main__':
-    import argparse
-    import numpy as np
-    from common import log_results, cond_solve, iter_solve, direct_solve
-    from babuska_H1 import compute_hierarchy
-    
-    parser = argparse.ArgumentParser()
-    # What
-    parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
-                         default=2, choices=[2, 3])
-    parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
-                        default=4)
-    parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
-                        default='iters', choices=['iters', 'cond', 'sane'])
-    # How
-    parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='MG', choices=['eig', 'mg', 'bp'])
-    
-    parser.add_argument('-log', type=str, help='Path to file for storing results',
-                        default='')
-    # Iter settings
-    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
-                        default=1E-12)
-    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
-    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
-                        default=1.0)
-    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
-                        default=1)
-    # Keep an eye on the error of the converged solution
-    parser.add_argument('-error', type=int, help='Compare to analytical solution',
-                        default=0)
+def setup_case_2d():
+    from mms_setups import babuska_Hdiv_2d
+    return babuska_Hdiv_2d()
 
-    args = parser.parse_args()
 
-    dim = args.D
+def setup_case_3d():
+    from mms_setups import babuska_Hdiv_3d
+    return babuska_Hdiv_3d()
 
-    main = {'iters': iter_solve,
-            'cond': cond_solve,
-            'sane': direct_solve}[args.Q]
 
-    # What rhs to use and monitoring
-    if args.error:
-        from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
-        from mms_setups import babuska_Hdiv_2d, babuska_Hdiv_3d
+def setup_error_monitor(up, memory):
+    from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
+    return monitor_error(up, [Hdiv_norm, L2_norm, Hs_norm(0.5)], memory)
 
-        if dim == 2:
-            up, fg = babuska_Hdiv_2d()
-        else:
-            up, fg = babuska_Hdiv_3d()
-        
-        memory = []
-        monitor = monitor_error(up, [Hdiv_norm, L2_norm, Hs_norm(0.5)], memory)
-    else:
-        memory, fg, monitor = None, None, None
 
-    init_level = 5
-    sizes, history = [], []
-    for n in [2**i for i in range(init_level, init_level+args.n)]:
-        # Embedded
-        hierarchy = compute_hierarchy(dim, n, nlevels=args.nlevels)
-        print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
-        
-        setup = setup_system(fg, args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
-        size, value, u = main(setup, args.tol)
-
-        if monitor is not None: monitor.send(u)
-
-        msg = 'Problem size %d[%s], current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), size, args.Q, value, history[::-1]))
-        history.append((value, ))
-        sizes.append(size)
-        
-    # S, V, Q and cond or iter
-    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %d %.16f', cvrg=memory)
+def setup_fractionality(): return 0.5

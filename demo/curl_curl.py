@@ -1,3 +1,12 @@
+# Here we solve the Babuska problem
+#   
+#   curl(curl(u)) + u = f  in \Omega
+#                 u.t = g  in \Gamma
+#
+# Enforcing bcs weakly leads to saddle point formulation with Lagrange
+# multiplier in H^0.5 requiring Schur complement preconditioner based
+# on -\Delta ^ 0.5
+
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
@@ -81,80 +90,19 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
 
     return AA, bb, BB, W
 
-# --------------------------------------------------------------------
 
-if __name__ == '__main__':
-    import argparse
-    import numpy as np
-    from common import log_results, cond_solve, iter_solve, direct_solve
-    from babuska_H1 import compute_hierarchy
-    
-    parser = argparse.ArgumentParser()
-    # What
-    parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
-                         default=2, choices=[2, 3])
-    parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
-                        default=4)
-    parser.add_argument('-Q', type=str, help='iters (with MinRes) or cond (using CGN)',
-                        default='iters', choices=['iters', 'cond', 'sane'])
-    # How
-    parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='MG', choices=['eig', 'mg', 'bp'])
-    
-    parser.add_argument('-log', type=str, help='Path to file for storing results',
-                        default='')
-    # Iter settings
-    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
-                        default=1E-12)
-    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
-    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
-                        default=1.0)
-    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
-                        default=1)
-    # Keep an eye on the error of the converged solution
-    parser.add_argument('-error', type=int, help='Compare to analytical solution',
-                        default=0)
+def setup_case_2d():
+    from mms_setups import curl_curl_2d
+    return curl_curl_2d()
 
-    args = parser.parse_args()
 
-    dim = args.D
+def setup_case_3d():
+    raise NotImplementedError()
 
-    main = {'iters': iter_solve,
-            'cond': cond_solve,
-            'sane': direct_solve}[args.Q]
 
-    # What rhs to use and monitoring
-    if args.error:
-        from error_convergence import monitor_error, Hcurl_norm, L2_norm, Hs_norm
-        from mms_setups import curl_curl_2d
+def setup_error_monitor(up, memory):
+    from error_convergence import monitor_error, Hcurl_norm, Hs_norm
+    return monitor_error(up, [Hcurl_norm, Hs_norm(0.5)], memory)
 
-        if dim == 2:
-            up, fg = curl_curl_2d()
-        else:
-            raise NotImplementedError
-        
-        memory = []
-        monitor = monitor_error(up, [Hcurl_norm, Hs_norm(0.5)], memory)
-    else:
-        memory, fg, monitor = None, None, None
 
-    init_level = 2 if args.Q == 'sane' else args.nlevels
-    sizes, history = [], []
-    for n in [2**i for i in range(init_level, init_level+args.n)]:
-        # Embedded
-        hierarchy = compute_hierarchy(dim, n, nlevels=args.nlevels)
-        print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
-        
-        setup = setup_system(fg, args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
-        size, value, u = main(setup, args.tol)
-
-        if monitor is not None: monitor.send(u)
-
-        msg = 'Problem size %d[%s], current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), size, args.Q, value, history[::-1]))
-        history.append((value, ))
-        sizes.append(size)
-        
-    # S, Q and cond or iter
-    args.log and log_results(args, sizes, {0.5: history}, fmt='%d %d %.16f', cvrg=memory)
+def setup_fractionality(): return 0.5

@@ -1,26 +1,20 @@
 * Installation of Hs multigrid
   Execute `source setup.rc` to have hsmg module available in this shell.
   FEniCS stack (which include numpy, scipy) is currently the only dependency.
-  Running demos and tests require fenics_ii.
+  Running demos and tests require fenics_ii. For different MinRes implementations
+  the cbc.block has to be installed from [[https://github.com/MiroK/cbc.block][github]] (until the features 
+  are merged to cbc.block@bitbucket)
 
 ** Tests
    Execute `pytest` in the current directory.
 
 ** TODO
    Immediate:
-   - restriction_matrix        [OK^1]
-   - Dirichlet dofs            [OK^2]
-   - macro_dofmap              [OK^3]
-   - the rest of multigrid     []
-     
+   - debugging
+
    Future:
    - coarsening of line meshes which are not straight
 
 ** FIXME
    0. Throughout the code there is a silent assumption of only running
       in serial. I don't prioritize running in parallel.
-   
-   1. Demos now use the eigenvalue fractional norms. They should be
-      replaced with multigrid. $\Delta^{-1/2}$ inverse is needed [[https://github.com/MiroK/hsmg/blob/master/demo/babuska.py#L61][here]] and
-      $\Delta^{1/2}$ is needed [[https://github.com/MiroK/hsmg/blob/master/demo/emi_poisson.py#L81][here]].
-  

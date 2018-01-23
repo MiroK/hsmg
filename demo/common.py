@@ -4,7 +4,7 @@ from dolfin import plot, sqrt, Function
 
 from fenics_ii.utils.direct import dolfin_solve
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
-from block.iterative import MinRes, CGN
+from block.iterative import MinRes, CGN, SubMinRes
 import numpy as np
 import os
 
@@ -45,7 +45,7 @@ def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
     return args.log
 
 
-def direct_solve((AA, bb, BB, W), tolerance):
+def direct_solve((AA, bb, BB, W), params):
     # Compute solution. Note this are arrays not Vectors
     w = dolfin_solve(AA, bb, method='umfpack', spaces=W)
     
@@ -56,17 +56,27 @@ def direct_solve((AA, bb, BB, W), tolerance):
     return size, niters, w
 
 
-def iter_solve((AA, bb, BB, W), tolerance):
+def iter_solve((AA, bb, BB, W), params):
     '''MinRes solve to get iteration counts'''
     x = AA.create_vec()
-    x.randomize()
+    if params['randomic']:
+        x.randomize()
+    else:
+        x.zero()
 
-    def monitor(k, x, r):
-        print k, r
-    
-    AAinv = MinRes(AA, precond=BB, initial_guess=x,
-                   tolerance=tolerance, relativeconv=True, maxiter=500, show=2,
-                   callback=monitor)
+    minres = params['which_minres']
+    if minres == 'block':
+        minres = MinRes
+    elif minres == 'herzog':
+        from block.iterative import SubMinRes
+        minres = SubMinRes
+    else:
+        from block.iterative import PETSMinRes
+        minres = PETSsMinRes
+        
+    AAinv = minres(AA, precond=BB, initial_guess=x,
+                   tolerance=params['tolerance'],
+                   relativeconv=params['relativeconv'], maxiter=500, show=2)
 
     # Compute solution
     x = AAinv * bb
@@ -79,13 +89,16 @@ def iter_solve((AA, bb, BB, W), tolerance):
     return size, niters, w
 
 
-def cond_solve((AA, bb, BB, W), tolerance):
+def cond_solve((AA, bb, BB, W), params):
     '''Solve CGN to get the estimate of condition number'''
+    # Start from ic - it is less likely(?) that we hit and eigenvector
+    # prematurely
     x = AA.create_vec()
     x.randomize()
 
     AAinv = CGN(AA, precond=BB, initial_guess=x,
-                tolerance=tolerance, relativeconv=True, maxiter=1500, show=2)
+                tolerance=params['tolerance'],
+                relativeconv=params['relativeconv'], maxiter=1500, show=2)
 
     # Compute solution
     x = AAinv * bb
