@@ -139,7 +139,7 @@ if __name__ == '__main__':
     else:
         memory, fg, monitor = None, None, None
 
-    init_level = 5
+    init_level = 2 if args.Q == 'sane' else args.nlevels
     sizes, history = [], []
     for n in [2**i for i in range(init_level, init_level+args.n)]:
         # Embedded
