@@ -71,8 +71,8 @@ def iter_solve((AA, bb, BB, W), params):
         from block.iterative import SubMinRes
         minres = SubMinRes
     else:
-        from block.iterative import PETSMinRes
-        minres = PETSsMinRes
+        from block.iterative import PETScMinRes
+        minres = PETScMinRes
         
     AAinv = minres(AA, precond=BB, initial_guess=x,
                    tolerance=params['tolerance'],
