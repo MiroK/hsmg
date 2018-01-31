@@ -118,7 +118,7 @@ def setup_system((mesh0, mesh1), hierarchy, precond, mg_params_):
                     [0, B11, 0],
                     [0, 0, B22]])
 
-    return AA, bb, BB
+    return AA, bb, BB, W
     
 # --------------------------------------------------------------------
 
@@ -138,7 +138,7 @@ if __name__ == '__main__':
                         default='iters', choices=['iters', 'cond'])
     # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='mg', choices=['eig', 'mg', 'bp'])
+                        default='eig', choices=['eig', 'mg', 'bp'])
     # Store
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
@@ -168,7 +168,7 @@ if __name__ == '__main__':
     subdomains = CompiledSubDomain(interior[dim])
 
     sizes, history = [], []
-    for level, n in enumerate([2**i for i in range(3, 4+args.n)], 1):
+    for level, n in enumerate([2**i for i in range(4, 4+args.n)], 1):
         # Setup the interior/exterior domains
         mesh = Mesh(*(n, )*dim)
         cell_f = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
@@ -189,12 +189,16 @@ if __name__ == '__main__':
         # The interface domain and the hierarchy on top of it
         hierarchy = compute_hierarchy(dim, n, nlevels=args.nlevels)
 
-        system = setup_system((mesh0, mesh1), hierarchy,
-                              args.B,
-                              mg_params_={'macro_size': args.mes, 'eta': args.eta})
+        setup = setup_system((mesh0, mesh1), hierarchy,
+                             args.B,
+                             mg_params_={'macro_size': args.mes, 'eta': args.eta})
 
-        size, value = main(system, args.tol)
+        size, value, u = main(setup, {'tolerance': args.tol,
+                                      'randomic': 1,
+                                      'relativeconv': False,
+                                      'which_minres': 'block'})
 
+                              
         msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))
         print 'Coarsest solve has %d cells' % hierarchy[-1].mesh.num_cells()
