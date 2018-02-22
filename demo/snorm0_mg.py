@@ -105,10 +105,13 @@ def generator(hierarchy, tolerance, InterpolationNorm, mg_params_):
         v = TestFunction(V)
         b = assemble(inner(f, v)*dx)
         bcs.apply(b)
-    
-        Ainv = ConjGrad(A, precond=B, initial_guess=x,
-                        tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
 
+        if solver == 'block':
+            Ainv = ConjGrad(A, precond=B, initial_guess=x,
+                            tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
+        else:
+            Ainv = PETScPCG(A, precond=B, initial_guess=x,
+                            tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
         # Compute solution
         x = Ainv * b
 

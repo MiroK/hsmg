@@ -1,6 +1,6 @@
 from dolfin import MeshFunction, SubsetIterator, CompiledSubDomain
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import plot, sqrt, Function
+from dolfin import plot, sqrt, Function, info
 
 from fenics_ii.utils.direct import dolfin_solve
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
@@ -47,11 +47,11 @@ def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
 
 def direct_solve((AA, bb, BB, W), params):
     # Compute solution. Note this are arrays not Vectors
-    w = dolfin_solve(AA, bb, method='umfpack', spaces=W)
+    w = dolfin_solve(AA, bb, method='mumps', spaces=W)
     
     niters = -1
     size = [wi.function_space().dim() for wi in w]
-    info('Solving linear system of size %d' % size)
+    info('Solving linear system of size %d' % sum(size))
 
     return size, niters, w
 

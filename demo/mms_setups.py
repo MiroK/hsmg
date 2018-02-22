@@ -190,8 +190,60 @@ def curl_curl_2d():
     g = sp.S(0)
 
     sigma_exact = as_expression(sigma)
-    # It's quite nice that you get surface curl as the extra var
+    # It's quite nice that you get surface curl as the extra varp
     p_exact = as_expression(sp_curl(sigma))
     f_rhs, g_rhs = map(as_expression, (f, g))
 
     return (sigma_exact, p_exact), (f_rhs, g_rhs)
+
+
+def paper_mortar_2d():
+    '''
+    With \Omega = [-1/4, 5/4]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
+
+    -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
+    \Delta u_2 + u_2 = f_2 in \Omega_2
+    n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
+    u1 - u2 = g on \Gamma
+    grad(u1).n1 = 0 in \partial\Omega_1
+    '''
+    pi = sp.pi
+    x, y = sp.symbols('x[0] x[1]')
+    
+    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)
+    u2 = 2*sp.sin(2*pi*x)*sp.sin(2*pi*y)
+
+    f1 = -u1.diff(x, 2) - u1.diff(y, 2) + u1
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) + u2
+    g = u1 - u2
+
+    up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
+    fg = map(as_expression, (f1, f2, g))
+
+    return up, fg
+
+
+def paper_mortar_3d():
+    '''
+    With \Omega = [-1/4, 5/4]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
+
+    -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
+    \Delta u_2 + u_2 = f_2 in \Omega_2
+    n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
+    u1 - u2 = g on \Gamma
+    grad(u1).n1 = 0 in \partial\Omega_1
+    '''
+    pi = sp.pi
+    x, y, z = sp.symbols('x[0] x[1] x[2]')
+    
+    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)*sp.sin(2*pi*z)
+    u2 = 2*sp.sin(2*pi*x)*sp.sin(2*pi*y)*sp.sin(2*pi*z)
+
+    f1 = -u1.diff(x, 2) - u1.diff(y, 2) - u1.diff(z, 2) + u1
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u2.diff(z, 2) + u2
+    g = u1 - u2
+
+    up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
+    fg = map(as_expression, (f1, f2, g))
+
+    return up, fg

@@ -26,7 +26,7 @@ if __name__ == '__main__':
     import argparse, os
     import numpy as np
     
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # The demo file: runnning it defines setups*
     parser.add_argument('demo', type=str, help='Which demo to run')
     # What
@@ -38,7 +38,7 @@ if __name__ == '__main__':
                         default='iters', choices=['iters', 'cond', 'sane'])
     # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='MG', choices=['eig', 'mg', 'bp'])
+                        default='eig', choices=['eig', 'mg', 'bp'])
     
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
@@ -68,6 +68,19 @@ if __name__ == '__main__':
     module, _ = os.path.splitext(args.demo)
     module = __import__(module)  # not importlib in python2.7
 
+    if hasattr(module, 'compute_hierarchy'):
+        compute_hierarchy = module.compute_hierarchy
+
+    # Multigrid needs a buffer to be able to create coarses meshes
+    if args.B != 'mg': args.nlevels = 1
+    
+    if hasattr(module, 'n_generator'):
+        n_values = module.n_generator(mg_levels=args.nlevels, nrefs=args.n)
+    else:
+        init_level = max(2 , args.nlevels)
+        finit_level = init_level + args.n
+        n_values = (2**i for i in range(init_level, init_level+args.n))
+    
     # Config
     dim = args.D
 
@@ -87,16 +100,11 @@ if __name__ == '__main__':
     else:
         memory, fg, monitor = None, None, None
 
-    # Multigrid needs a buffer to be able to create coarses meshes
-    if args.B != 'mg':
-        args.nlevels = 1
-    init_level = min(2 , args.nlevels)
     
     sizes, history = [], []
-    for level, n in enumerate([2**i for i in range(init_level, init_level+args.n)], 1):
+    for level, n in enumerate(n_values, 1):
         # Embedded
         hierarchy = compute_hierarchy(dim, n, nlevels=args.nlevels)
-        print 'Hierarchies', [mesh.num_vertices() for mesh in hierarchy]
         
         setup = module.setup_system(fg, args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
         size, value, u = main(setup, {'tolerance': args.tol,
