@@ -47,7 +47,7 @@ def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
 
 def direct_solve((AA, bb, BB, W), params):
     # Compute solution. Note this are arrays not Vectors
-    w = dolfin_solve(AA, bb, method='mumps', spaces=W)
+    w = dolfin_solve(AA, bb, method='umfpack', spaces=W)
     
     niters = -1
     size = [wi.function_space().dim() for wi in w]
