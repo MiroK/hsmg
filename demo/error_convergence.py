@@ -12,11 +12,13 @@ def coroutine(func):
 
 
 @coroutine
-def monitor_error(u, norms, memory):
+def monitor_error(u, norms, memory, transform=lambda x: x):
     mesh_size0, error0 = None, None
     while True:
         uh = yield
+        uh = transform(uh)
         mesh_size = uh[0].function_space().mesh().hmin()
+
         error = [norm(ui, uhi) for norm, ui, uhi in zip(norms, u, uh)]
         error = np.array(error)
 

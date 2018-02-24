@@ -112,7 +112,12 @@ if __name__ == '__main__':
                                       'relativeconv': bool(args.relconv),
                                       'which_minres': args.minres})
 
-        if monitor is not None: monitor.send(u)
+        if monitor is not None:
+            if not hasattr(module, 'transform'):
+                transform = lambda h, u: u
+            else:
+                transform = module.transform
+            monitor.send(transform(hierarchy, u))
 
         msg = '(%d/%d) Problem size %d[%s], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (level, args.n, sum(size), size, args.Q, value, history[::-1]))

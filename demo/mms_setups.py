@@ -199,7 +199,7 @@ def curl_curl_2d():
 
 def paper_mortar_2d():
     '''
-    With \Omega = [-1/4, 5/4]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
+    With \Omega = [0, 1]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
 
     -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
     \Delta u_2 + u_2 = f_2 in \Omega_2
@@ -210,13 +210,14 @@ def paper_mortar_2d():
     pi = sp.pi
     x, y = sp.symbols('x[0] x[1]')
     
-    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)
-    u2 = 2*sp.sin(2*pi*x)*sp.sin(2*pi*y)
+    u1 = sp.cos(4*pi*x)*sp.cos(4*pi*y)
+    u2 = 2*u1
 
     f1 = -u1.diff(x, 2) - u1.diff(y, 2) + u1
     f2 = -u2.diff(x, 2) - u2.diff(y, 2) + u2
     g = u1 - u2
-
+    # NOTE: the multiplier is grad(u).n and with the chosen data this
+    # means that it's zero on the interface
     up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
     fg = map(as_expression, (f1, f2, g))
 
@@ -225,7 +226,7 @@ def paper_mortar_2d():
 
 def paper_mortar_3d():
     '''
-    With \Omega = [-1/4, 5/4]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
+    With \Omega = [0, 1]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
 
     -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
     \Delta u_2 + u_2 = f_2 in \Omega_2
@@ -236,14 +237,83 @@ def paper_mortar_3d():
     pi = sp.pi
     x, y, z = sp.symbols('x[0] x[1] x[2]')
     
-    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)*sp.sin(2*pi*z)
-    u2 = 2*sp.sin(2*pi*x)*sp.sin(2*pi*y)*sp.sin(2*pi*z)
+    u1 = sp.cos(4*pi*x)*sp.cos(4*pi*y)*sp.cos(4*pi*z)
+    u2 = 2*u1
 
     f1 = -u1.diff(x, 2) - u1.diff(y, 2) - u1.diff(z, 2) + u1
-    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u2.diff(z, 2) + u2
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u1.diff(z, 2) + u2
     g = u1 - u2
-
+    # NOTE: the multiplier is grad(u).n and with the chosen data this
+    # means that it's zero on the interface
     up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
+    fg = map(as_expression, (f1, f2, g))
+
+    return up, fg
+
+
+def paper_hdiv_2d(eps=1E-5):
+    '''
+    -Delta u1 + u1 = f1
+    -Delta u2 + u2 = f2
+    u1 = 0 on outer boundary
+    grad(u1).n1 + grad(u2).n2 = 0
+    eps*(u1 - u2) + grad(u1).n1 = h
+
+    Solved in mixed form with sigma_i = -grad(u_i)
+    '''
+    x, y = sp.symbols('x[0] x[1]')
+    
+    sp_grad = lambda f: sp.Matrix([f.diff(x, 1), f.diff(y, 1)])
+
+    pi = sp.pi
+
+    
+    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)  # Zero at bdry, zero grad @ iface
+    u2 = u1 + 1  # Zero grad @iface
+
+    sigma1 = -sp_grad(u1)
+    sigma2 = -sp_grad(u2)
+    
+    f1 = -u1.diff(x, 2) - u1.diff(y, 2) + u1
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) + u2
+
+    g = eps*(u1 - u2) # + grad(u1).n1 # But the flux is 0
+
+    up = map(as_expression, (sigma1, sigma2, u1, u2, u1 - u2))
+    # The last gut is the u1 trace value but here is is 0
+    fg = map(as_expression, (f1, f2, g))
+
+    return up, fg
+
+
+def paper_hdiv_3d(eps=1E-5):
+    '''
+    -Delta u1 + u1 = f1
+    -Delta u2 + u2 = f2
+    u1 = 0 on outer boundary
+    grad(u1).n1 + grad(u2).n2 = 0
+    eps*(u1 - u2) + grad(u1).n1 = h
+
+    Solved in mixed form with sigma_i = -grad(u_i)
+    '''
+    pi = sp.pi
+    x, y, z = sp.symbols('x[0] x[1] x[2]')
+
+    sp_grad = lambda f: sp.Matrix([f.diff(x, 1), f.diff(y, 1), f.diff(z, 1)])
+    
+    u1 = sp.sin(2*pi*x)*sp.sin(2*pi*y)*sp.sin(2*pi*z)  # Zero at bdry, zero grad @ iface
+    u2 = u1 + 1  # Zero grad @iface
+
+    sigma1 = -sp_grad(u1)
+    sigma2 = -sp_grad(u2)
+    
+    f1 = -u1.diff(x, 2) - u1.diff(y, 2) - u1.diff(z, 2) + u1
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u2.diff(z, 2) + u2
+
+    g = eps*(u1 - u2) # + grad(u1).n1 # But the flux is 0
+
+    up = map(as_expression, (sigma1, sigma2, u1, u2, u1 - u2))
+    # The last gut is the u1 trace value but here is is 0
     fg = map(as_expression, (f1, f2, g))
 
     return up, fg

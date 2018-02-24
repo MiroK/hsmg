@@ -19,8 +19,9 @@
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
+from fenics_ii.utils.convert import block_diagonal_matrix
 
-from block import block_mat, block_assemble
+from block import block_mat, block_vec
 from block.algebraic.petsc import LU, InvDiag, AMG
 
 from hsmg import HsNormMG
@@ -55,6 +56,7 @@ def compute_hierarchy(mesh_init, dim, bdry, n, nlevels):
 
         markers = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         bdry.mark(markers, 1)
+        #DomainBoundary().mark(markers, 1)
         assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
         # NOTE: !(EmbeddedMesh <:  Mesh)
         return [EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim)]
@@ -65,7 +67,7 @@ def compute_hierarchy(mesh_init, dim, bdry, n, nlevels):
 
 def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     '''Solver'''
-    kappa_e = Constant(1.5)
+    kappa_e = Constant(1.0)
     kappa_i = Constant(1)
 
     omega = subdomains.mesh()
@@ -85,6 +87,9 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     sigma, u, p = map(TrialFunction, W)
     tau, v, q = map(TestFunction, W)
 
+    File('FOO.pvd') << subdomains
+    File('CUX.pvd') << gamma.mesh
+    
     dX = Measure('dx', domain=omega, subdomain_data=subdomains)
     dxGamma = dx(domain=gamma.mesh)
         
@@ -111,9 +116,9 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
                     [A10, A11,   0],
                     [A20, 0,   A22]])
 
-    bb = block_assemble([inner(Constant((0, )*dim), tau)*dx,
-                         inner(Constant(0), v)*dx,
-                         inner(g, q)*dxGamma])
+    bb = block_vec(map(assemble, [inner(Constant((1, )*dim), tau)*dx,
+                                  inner(Constant(1), v)*dx,
+                                  inner(g, q)*dxGamma]))
 
     # Block of Riesz preconditioner
     B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
@@ -138,11 +143,9 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     
         B22 = BP_H1Norm(Q, 0.5, bp_params)
 
-    BB = block_mat([[B00, 0, 0],
-                    [0, B11, 0],
-                    [0, 0, B22]])
+    BB = block_diagonal_matrix([B00, B11, B22])
 
-    return AA, bb, BB
+    return (AA, bb, BB, W)
     
 # --------------------------------------------------------------------
 
@@ -162,7 +165,7 @@ if __name__ == '__main__':
                         default='iters', choices=['iters', 'cond'])
     # How
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
-                        default='mg', choices=['eig', 'mg', 'bp'])
+                        default='eig', choices=['eig', 'mg', 'bp'])
     # Store
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                         default='')
@@ -174,7 +177,7 @@ if __name__ == '__main__':
     parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
                         default=1)
     parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
+                        default=2)
 
     args = parser.parse_args()
 
@@ -215,7 +218,7 @@ if __name__ == '__main__':
         system = setup_system(args.B, hierarchy, subdomains,
                               mg_params_={'macro_size': args.mes, 'eta': args.eta})
 
-        size, value = main(system, args.tol)
+        size, value, u = main(system, {'randomic': 1, 'which_minres': 'petsc', 'tolerance': 1e-8, 'relativeconv': 0})
 
         msg = '(%d) Problem size %d[%r], current %s is %g, previous %r'
         print '\033[1;37;31m%s\033[0m' % (msg % (level, sum(size), size, args.Q, value, history[::-1]))

@@ -1,21 +1,9 @@
-# Here we solve the problem similar to the one discussed in
-# `Mortar finite elements for interface problems`
-#
-# With \Omega = [-1/4, 5/4]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
-#
-# -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
-#  \Delta u_2 + u_2 = f_2 in \Omega_2
-#  n1.grad(u_1) + n2.grad(u_2) = g on \partial\Omega_2=Gamma
-#  u1 - u2 = 0 on \Gamma
-#  u1 = 0 in \partial\Omega_1
-#
-# in the mixed form
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from fenics_ii.utils.convert import block_diagonal_matrix
 
-from block import block_mat, block_vec, block_bc
+from block import block_mat, block_vec, block_bc, block_assemble
 from block.algebraic.petsc import LU, InvDiag
 
 from hsmg import HsNormMG
@@ -28,7 +16,7 @@ import numpy as np
 def n_generator(mg_levels, nrefs):
     '''n in UnitSquare/UnitCube'''
     # The geom setup here [-1/4, 5/4] makes things a bit awkard
-    n0 = 6
+    n0 = 4
     k = 1
     while k < mg_levels:  n0 *= 2
 
@@ -36,148 +24,166 @@ def n_generator(mg_levels, nrefs):
         yield n0
         n0 *= 2
 
+        
 def compute_hierarchy(dim, n, nlevels):
     '''
     The mesh where we want to solve is n. Here we compute previous
     levels for setting up multrid. nlevels in total.
     '''
     assert nlevels > 0
+
+    # Interface between interior and exteriorn domains
+    gamma = {2: 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)',
+             3: 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'}
     
-    interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25',
-                3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25'}[dim]
+    # Marking interior domains
+    interior = {2: 'std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)) < 0.25 ? 1: 0',
+                3: 'std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))) < 0.25 ? 1: 0'}
+
+    mesh_init = {2: UnitSquareMesh, 3: UnitCubeMesh}
     
-    interior = CompiledSubDomain(interior)
     if nlevels == 1:
-        if dim == 2:
-            outer_mesh = RectangleMesh(Point(*(-0.25, )*dim), Point(*(1.25, )*dim), n, n)
+        if n != 2:
+            mesh = mesh_init[dim](*(n, )*dim)
         else:
-            outer_mesh = BoxMesh(Point(*(-0.25, )*dim), Point(*(1.25, )*dim), n, n, n)
+            if dim == 2:
+                mesh = RectangleMesh(Point(0.25, 0.25), Point(0.75, 0.75), 1, 1)
+            else:
+                mesh = BoxMesh(Point(0.25, 0.25, 0.25), Point(0.75, 0.75, 0.75), 1, 1, 1)
 
-        File('foo.pvd') << outer_mesh
-        subdomains = MeshFunction('size_t', outer_mesh, outer_mesh.topology().dim(), 0)
-        for cell in cells(outer_mesh):
-            x = cell.midpoint().array()            
-            subdomains[cell] = int(interior.inside(x, False))
-        assert sum(1 for _ in SubsetIterator(subdomains, 1)) > 0
+        subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
+        interior_ = CompiledSubDomain(interior[dim])
+        for cell in cells(mesh):
+            subdomains[cell] = interior_.inside(cell.midpoint().array(), False)
+        mesh.subdomains = subdomains
 
-        inner_mesh = SubMesh(outer_mesh, subdomains, 1)
-        outer_mesh = SubMesh(outer_mesh, subdomains, 0)
-
-        surfaces = MeshFunction('size_t', inner_mesh, dim-1, 0)
-        DomainBoundary().mark(surfaces, 1)
-        gamma_mesh = EmbeddedMesh(inner_mesh, surfaces, 1, [0.5, ]*dim)
-        
+        markers = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        CompiledSubDomain(gamma[dim]).mark(markers, 1)
+        #DomainBoundary().mark(markers, 1)
+        assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
         # NOTE: !(EmbeddedMesh <:  Mesh)
-        return [(outer_mesh, inner_mesh, gamma_mesh)]
+        return [(mesh, EmbeddedMesh(mesh, markers, 1, normal=[0.5]*dim))]
 
     return compute_hierarchy(dim, n, 1) + compute_hierarchy(dim, n/2, nlevels-1)
 
 
-def setup_system(rhs_data, precond, meshes, mg_params_):
+def setup_system(rhs_data, precond, meshes, mg_params_, eps=1E-5):
     '''Solver'''
-    outer_mesh, inner_mesh, gamma_mesh = meshes[0]
+    omega, gamma = meshes[0]
 
     # Extract botttom edge meshes
     hierarchy = [m[-1] for m in meshes]
-        
-    # Space of u and the Lagrange multiplier
-    S1 = FunctionSpace(outer_mesh, 'RT', 1)
-    S2 = FunctionSpace(inner_mesh, 'RT', 1)
-    V1 = FunctionSpace(outer_mesh, 'DG', 0)
-    V2 = FunctionSpace(inner_mesh, 'DG', 0)
-    Q = FunctionSpace(gamma_mesh.mesh, 'DG', 0)
-    W = [S1, S2, V1, V2, Q]
-
-    sigma1, sigma2, u1, u2, p = map(TrialFunction, W)
-    tau1, tau2, v1, v2, q = map(TestFunction, W)
-
-    dxGamma = Measure('dx', domain=gamma_mesh.mesh)
-    n_gamma = gamma_mesh.normal('+')          # Outer of inner square
-    
-    a00 = inner(sigma1, tau1)*dx
-    a11 = inner(sigma2, tau2)*dx
-
-    a02 = inner(-u1, div(tau1))*dx
-    a13 = inner(-u2, div(tau2))*dx
-
-    a20 = inner(-v1, div(sigma1))*dx
-    a31 = inner(-v2, div(sigma2))*dx
-
-    a22 = inner(-u1, v1)*dx
-    a33 = inner(-u2, v2)*dx
-
-    # Coupling stuff
-    a04 = inner(p, dot(tau1('+'), n_gamma))*dxGamma    
-    a14 = inner(p, dot(tau2('+'), n_gamma))*dxGamma    # Sign!
-    a40 = inner(q, dot(sigma1('+'), n_gamma))*dxGamma    
-    a41 = inner(q, dot(sigma2('+'), n_gamma))*dxGamma    # Sign!
-
     f1, f2, g = rhs_data
-    # Rhs
-    dim = outer_mesh.geometry().dim()
-    L0 = inner(Constant((0, )*dim), tau1)*dx
-    L1 = inner(Constant((0, )*dim), tau2)*dx
-    L2 = inner(-f1, v1)*dx
-    L3 = inner(-f2, v2)*dx
-    L4 = inner(g, q)*dx  # Sign?
+    # F1 is like u1
 
-    # Assembly
-    A00, A11, A02, A13, A20, A31, A22, A33 = map(assemble,
-                                                 (a00, a11, a02, a13, a20, a31, a22, a33))
+    S = FunctionSpace(omega, 'RT', 1)        # sigma
+    V = FunctionSpace(omega, 'DG', 0)        # u
+    Q = FunctionSpace(gamma.mesh, 'DG', 0)   # p
+    W = [S, V, Q]
 
-    A04, A14, A40, A41 = [trace_assemble(a, gamma_mesh) for a in (a04, a14, a40, a41)]
-    A14 *= -1
-    A41 *= -1
+    sigma, u, p = map(TrialFunction, W)
+    tau, v, q = map(TestFunction, W)
 
-    AA = block_mat([[A00, 0,   A02, 0,   A04],
-                    [0,   A11, 0,   A13, A14],
-                    [A20, 0,   A22, 0,   0  ],
-                    [0,   A31, 0,   A33, 0  ],
-                    [A40, A41, 0,   0,   0  ]])
+    dX = Measure('dx', domain=omega, subdomain_data=omega.subdomains)
+    dxGamma = dx(domain=gamma.mesh)
+        
+    n_gamma = gamma.normal
+    n_gamma.vector()[:] *= -1  # Make it consistent with the mms case.
+    n_gamma = n_gamma('+')          
     
-    bb = block_vec(map(assemble, (L0, L1, L2, L3, L4)))
+    # System - for symmetry
+    a00 = inner(Constant(1.)*sigma, tau)*dX(0) + inner(Constant(1.)*sigma, tau)*dX(1)
+    a01 = -inner(u, div(tau))*dX
+    a02 = inner(dot(tau('+'), n_gamma), p)*dxGamma
 
-    # Preconditioner
-        # Preconditioner blocks
-    P00 = LU(assemble(inner(div(sigma1), div(tau1))*dx + inner(sigma1, tau1)*dx))
-    P11 = LU(assemble(inner(div(sigma2), div(tau2))*dx + inner(sigma2, tau2)*dx))
-    P22 = InvDiag(assemble(inner(u1, v1)*dx))
-    P33 = InvDiag(assemble(inner(u2, v2)*dx))
+    a10 = -inner(div(sigma), v)*dX
+    # FIXme: double check sign here
+    a11 = -inner(u, v)*dX
 
-    bdry = None
-    mg_params = {'nlevels': len(hierarchy)}
-    mg_params.update(mg_params_)
-    
-    if precond == 'mg':
-        P44 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
-    elif precond == 'eig':
-        P44 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)            # Bonito
+    a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
+    a22 = -Constant(eps)*inner(p, q)*dxGamma   
+
+    A00, A01, A10, A11, A22 = map(assemble, (a00, a01, a10, a11, a22))
+    A02 = trace_assemble(a02, gamma)
+    A20 = trace_assemble(a20, gamma)
+
+    AA = block_mat([[A00, A01, A02],
+                    [A10, A11,   0],
+                    [A20, 0,   A22]])
+
+    dim = omega.geometry().dim()
+    bb = block_assemble([inner(Constant((0, )*dim), tau)*dx,
+                         inner(-f1, v)*dX(0) + inner(-f2, v)*dX(1),
+                         inner(-g, q)*dxGamma])
+
+    # Block of Riesz preconditioner
+    B00 = LU(assemble(inner(sigma, tau)*dX + inner(div(sigma), div(tau))*dX))
+    B11 = InvDiag(assemble(inner(u, v)*dX))
+
+    # (Miro) Gamma here is closed loop so H1_L2_Interpolation norm
+    # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
+    # boundary conditions are set
+    if precond == 'eig':
+        B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+    elif precond ==  'mg':
+        # Alternative B22 block:
+        mg_params = {'nlevels': len(hierarchy)}
+        mg_params.update(mg_params_)
+
+        bdry = None
+        B22 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
+    # Bonito
     else:
         bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
                      'solver': 'cholesky'}
-        P44 = BP_H1Norm(Q, 0.5, bp_params)
-    print 'Setup B'
+    
+        B22 = BP_H1Norm(Q, 0.5, bp_params)
 
-    # The preconditioner
-    BB = block_diagonal_matrix([P00, P11, P22, P33, P44])
+    BB = block_mat([[B00, 0, 0],
+                    [0, B11, 0],
+                    [0, 0, B22]])
 
     return AA, bb, BB, W
 
-    
+
+def transform(hierarchy, u):
+    '''Break sigma, u, p into pieces on subdomains'''
+    mesh, _ = hierarchy[0]
+
+    outer_mesh = SubMesh(mesh, mesh.subdomains, 0)  # 1
+    inner_mesh = SubMesh(mesh, mesh.subdomains, 1)  # 2
+
+    sigma_h, u_h, p_h = u
+
+    sigma_elm = sigma_h.function_space().ufl_element()
+    S1 = FunctionSpace(outer_mesh, sigma_elm)
+    S2 = FunctionSpace(inner_mesh, sigma_elm)
+    sigma1_h = interpolate(sigma_h, S1)
+    sigma2_h = interpolate(sigma_h, S2)
+
+    u_elm = u_h.function_space().ufl_element()
+    V1 = FunctionSpace(outer_mesh, u_elm)
+    V2 = FunctionSpace(inner_mesh, u_elm)
+    u1_h = interpolate(u_h, V1)
+    u2_h = interpolate(u_h, V2)
+
+    # p_h.vector()[:] *= -1.
+
+    return [sigma1_h, sigma2_h, u1_h, u2_h, p_h]
+
+
 def setup_case_2d():
     from mms_setups import paper_hdiv_2d
     return paper_hdiv_2d()
 
 
 def setup_case_3d():
-    assert False
-    # from mms_setups import paper_hdiv_3d
-    # return paper_hdiv_3d()
+    from mms_setups import paper_hdiv_3d
+    return paper_hdiv_3d()
 
 
 def setup_error_monitor(true, memory):
     from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
     return monitor_error(true, [Hdiv_norm, Hdiv_norm, L2_norm, L2_norm, Hs_norm(0.5)], memory)
-
 
 def setup_fractionality(): return 0.5
