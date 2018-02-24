@@ -12,18 +12,6 @@ from hsmg.hsquad import BP_H1Norm
 from dolfin import *
 import numpy as np
 
-
-def n_generator(mg_levels, nrefs):
-    '''n in UnitSquare/UnitCube'''
-    # The geom setup here [-1/4, 5/4] makes things a bit awkard
-    n0 = 4
-    k = 1
-    while k < mg_levels:  n0 *= 2
-
-    for _ in range(0, nrefs):
-        yield n0
-        n0 *= 2
-
         
 def compute_hierarchy(dim, n, nlevels):
     '''
@@ -72,7 +60,7 @@ def setup_system(rhs_data, precond, meshes, mg_params_, eps=1E-5):
     omega, gamma = meshes[0]
 
     # Extract botttom edge meshes
-    hierarchy = [m[-1] for m in meshes]
+    hierarchy = [m[-1].mesh for m in meshes]
     f1, f2, g = rhs_data
     # F1 is like u1
 

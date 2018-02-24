@@ -74,12 +74,9 @@ if __name__ == '__main__':
     # Multigrid needs a buffer to be able to create coarses meshes
     if args.B != 'mg': args.nlevels = 1
     
-    if hasattr(module, 'n_generator'):
-        n_values = module.n_generator(mg_levels=args.nlevels, nrefs=args.n)
-    else:
-        init_level = max(2 , args.nlevels)
-        finit_level = init_level + args.n
-        n_values = (2**i for i in range(init_level, init_level+args.n))
+    init_level = max(2 , args.nlevels)
+    finit_level = init_level + args.n
+    n_values = (2**i for i in range(init_level, finit_level))
     
     # Config
     dim = args.D
