@@ -122,7 +122,8 @@ if __name__ == '__main__':
         sizes.append(size)
         
     hs_fract = module.setup_fractionality()
+    nspaces = len(setup[-1])
     # dim of spaces + quantity of interest
     args.log and log_results(args, sizes, {hs_fract: history},
-                             fmt=' '.join(['%d']*len(up) + ['%.16f']),
+                             fmt=' '.join(['%d']*nspaces + ['%.16f']),
                              cvrg=memory)

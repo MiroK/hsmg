@@ -12,26 +12,26 @@ def coroutine(func):
 
 
 @coroutine
-def monitor_error(u, norms, memory, transform=lambda x: x):
+def monitor_error(u, norms, memory, reduction=lambda x: x):
     mesh_size0, error0 = None, None
     while True:
         uh = yield
-        uh = transform(uh)
         mesh_size = uh[0].function_space().mesh().hmin()
 
         error = [norm(ui, uhi) for norm, ui, uhi in zip(norms, u, uh)]
-        error = np.array(error)
+        error = np.array(reduction(error))
 
         if error0 is not None:
             rate = np.log(error/error0)/np.log(mesh_size/mesh_size0)
         else:
             rate = np.nan*np.ones_like(error)
             
+        print 'h = %.4E' % mesh_size,
         print ' ,'.join(['e_(u%d) = %.2E[%.2f]' % (i, e, r)
-                        for i, (e, r) in enumerate(zip(error, rate))])
+                         for i, (e, r) in enumerate(zip(error, rate))])
         
         error0, mesh_size0 = error, mesh_size
-        memory.append(error)
+        memory.append(np.r_[mesh_size, error])
 
         
 H1_norm = lambda u, uh: errornorm(u, uh, 'H1', degree_rise=1)

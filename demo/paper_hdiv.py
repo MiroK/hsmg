@@ -172,6 +172,16 @@ def setup_case_3d():
 
 def setup_error_monitor(true, memory):
     from error_convergence import monitor_error, Hdiv_norm, L2_norm, Hs_norm
-    return monitor_error(true, [Hdiv_norm, Hdiv_norm, L2_norm, L2_norm, Hs_norm(0.5)], memory)
+    # Note we produce sigma1, sigma2 u1, u2, and p error. But this is just
+    # so that it is easier to compute error as the true solution is
+    # discontinuous. So we compute on subdomain and then reduce
+    reduction = lambda e: None if e is None else [sqrt(e[0]**2 + e[1]**2),  # Hdiv
+                                                  sqrt(e[2]**2 + e[3]**2),  # L2
+                                                  e[-1]]
+
+    return monitor_error(true,
+                         [Hdiv_norm, Hdiv_norm, L2_norm, L2_norm, Hs_norm(0.5)],
+                         memory,
+                         reduction)
 
 def setup_fractionality(): return 0.5
