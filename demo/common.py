@@ -39,7 +39,8 @@ def log_results(args, size, results, name='', fmt='%.18e', cvrg=None):
             np.savetxt(handle, table, fmt=fmt, header=header)
     # Saving error again analytical solution
     if cvrg is not None:
-        path = '_'.join(['error', args.log])
+        dirname, basename = os.path.dirname(args.log), os.path.basename(args.log)
+        path = os.path.join(dirname, '_'.join(['error', basename]))
         np.savetxt(path, cvrg)
 
     return args.log
