@@ -50,13 +50,13 @@ def _results(problem, eps, nlevels, params, recompute):
     n = params['-n']
     for mg_level in nlevels:
         params['-n'] = n + level_max - mg_level
-        log_files[mg_level] = _results(problem, nlevels=mg_level, params=params, recompute=recompute)
+        log_files[mg_level] = _results(problem, eps=eps, nlevels=mg_level, params=params, recompute=recompute)
 
     # Finally for comparison I want the eigenvalue results
     mg_level = 0
     params['-n'] = n + level_max - 2
     params['-B'] = 'eig'
-    log_files[mg_level] = _results(problem, nlevels=mg_level, params=params, recompute=recompute)
+    log_files[mg_level] = _results(problem, eps=eps, nlevels=mg_level, params=params, recompute=recompute)
 
     tex_file = os.path.join(folder, '.'.join([name, 'tex']))
     # Tex
@@ -218,6 +218,6 @@ if __name__ == '__main__':
 
     problems = {'hdiv': 'paper_hdiv.py', 'mortar': 'paper_mortar.py'}
     # Eps params
-    eps_params = {'hdiv': 1E-5, 'mortar': 1E5}
+    eps_params = {'hdiv': 1E-8, 'mortar': 1E8}
     for w in which:
         _results(problems[w], eps_params[w], nlevels, params, args.recompute)

@@ -114,7 +114,7 @@ if __name__ == '__main__':
                                       'randomic': bool(args.randomic),
                                       'relativeconv': bool(args.relconv),
                                       'which_minres': args.minres})
-        print u[-1].vector().array()
+        
         if monitor is not None:
             if not hasattr(module, 'transform'):
                 transform = lambda h, u: u
