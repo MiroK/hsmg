@@ -218,6 +218,6 @@ if __name__ == '__main__':
 
     problems = {'hdiv': 'paper_hdiv.py', 'mortar': 'paper_mortar.py'}
     # Eps params
-    eps_params = {'hdiv': 1E-8, 'mortar': 1E8}
+    eps_params = {'hdiv': 1E-15, 'mortar': 1E15}
     for w in which:
         _results(problems[w], eps_params[w], nlevels, params, args.recompute)
