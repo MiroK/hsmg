@@ -62,6 +62,10 @@ if __name__ == '__main__':
     parser.add_argument('-error', type=int, help='Compare to analytical solution',
                         default=1)
 
+    # This is a parameter used in the paper examples
+    parser.add_argument('-eps_param', type=float, help='paper_hdiv, paper_mortar epsilon',
+                        default=1.)
+    
     args = parser.parse_args()
 
     # The setups
@@ -88,9 +92,9 @@ if __name__ == '__main__':
     # What rhs to use and monitoring
     if args.error:
         if dim == 2:
-            up, fg = module.setup_case_2d()
+            up, fg = module.setup_case_2d(eps=args.eps_param)
         else:
-            up, fg = module.setup_case_3d()
+            up, fg = module.setup_case_3d(eps=args.eps_param)
         
         memory = []
         monitor = module.setup_error_monitor(up, memory)

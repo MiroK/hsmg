@@ -160,14 +160,14 @@ def transform(hierarchy, u):
     return [sigma1_h, sigma2_h, u1_h, u2_h, p_h]
 
 
-def setup_case_2d():
+def setup_case_2d(**kwargs):
     from mms_setups import paper_hdiv_2d
-    return paper_hdiv_2d()
+    return paper_hdiv_2d(eps=kwargs.get('eps'))
 
 
-def setup_case_3d():
+def setup_case_3d(**kwargs):
     from mms_setups import paper_hdiv_3d
-    return paper_hdiv_3d()
+    return paper_hdiv_3d(eps=kwargs.get('eps'))
 
 
 def setup_error_monitor(true, memory):

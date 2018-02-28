@@ -251,7 +251,7 @@ def paper_mortar_3d():
     return up, fg
 
 
-def paper_hdiv_2d(eps=1E-5):
+def paper_hdiv_2d(eps):
     '''
     -Delta u1 + u1 = f1
     -Delta u2 + u2 = f2
@@ -286,7 +286,7 @@ def paper_hdiv_2d(eps=1E-5):
     return up, fg
 
 
-def paper_hdiv_3d(eps=1E-5):
+def paper_hdiv_3d(eps):
     '''
     -Delta u1 + u1 = f1
     -Delta u2 + u2 = f2

@@ -115,12 +115,12 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     return AA, bb, BB, W
 
 
-def setup_case_2d():
+def setup_case_2d(**kwargs):
     from mms_setups import babuska_Hdiv_2d
     return babuska_Hdiv_2d()
 
 
-def setup_case_3d():
+def setup_case_3d(**kwargs):
     from mms_setups import babuska_Hdiv_3d
     return babuska_Hdiv_3d()
 

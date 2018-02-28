@@ -135,14 +135,14 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     return AA, bb, BB, W
 
 
-def setup_case_2d():
+def setup_case_2d(**kwargs):
     from mms_setups import paper_mortar_2d
-    return paper_mortar_2d()
+    return paper_mortar_2d(eps=kwargs.get('eps'))
 
 
-def setup_case_3d():
+def setup_case_3d(**kwargs):
     from mms_setups import paper_mortar_3d
-    return paper_mortar_3d()
+    return paper_mortar_3d(eps=kwargs.get('eps'))
 
 
 def setup_error_monitor(true, memory):

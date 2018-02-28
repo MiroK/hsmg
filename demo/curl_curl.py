@@ -91,12 +91,12 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     return AA, bb, BB, W
 
 
-def setup_case_2d():
+def setup_case_2d(**kwargs):
     from mms_setups import curl_curl_2d
     return curl_curl_2d()
 
 
-def setup_case_3d():
+def setup_case_3d(**kwargs):
     raise NotImplementedError()
 
 
