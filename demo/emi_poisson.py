@@ -65,7 +65,7 @@ def compute_hierarchy(mesh_init, dim, bdry, n, nlevels):
         compute_hierarchy(mesh_init, dim, bdry, n/2, nlevels-1)
 
 
-def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
+def setup_system(precond, hierarchy, subdomains, mg_params_, sys_params):
     '''Solver'''
     kappa_e = Constant(1.0)
     kappa_i = Constant(1)
@@ -106,7 +106,7 @@ def setup_system(precond, hierarchy, subdomains, mg_params_, beta=0.0):
     a11 = -inner(u, v)*dX
 
     a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
-    a22 = -Constant(beta)*inner(p, q)*dxGamma   
+    a22 = -Constant(sys_params['eps'])*inner(p, q)*dxGamma   
 
     A00, A01, A10, A11, A22 = map(assemble, (a00, a01, a10, a11, a22))
     A02 = trace_assemble(a02, gamma)

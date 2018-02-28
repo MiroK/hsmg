@@ -40,7 +40,7 @@ def compute_hierarchy(dim, n, nlevels):
     return compute_hierarchy(dim, n, 1) + compute_hierarchy(dim, n/2, nlevels-1)
 
 
-def setup_system((mesh0, mesh1), hierarchy, precond, mg_params_):
+def setup_system((mesh0, mesh1), hierarchy, precond, mg_params_, sys_params):
     '''Solver'''
     gamma = hierarchy[0]
     

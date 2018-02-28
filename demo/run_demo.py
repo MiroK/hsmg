@@ -107,12 +107,14 @@ if __name__ == '__main__':
         # Embedded
         hierarchy = compute_hierarchy(dim, n, nlevels=args.nlevels)
         
-        setup = module.setup_system(fg, args.B, hierarchy, mg_params_={'macro_size': args.mes, 'eta': args.eta})
+        setup = module.setup_system(fg, args.B, hierarchy,
+                                    mg_params_={'macro_size': args.mes, 'eta': args.eta},
+                                    sys_params={'eps': args.eps_param})
         size, value, u = main(setup, {'tolerance': args.tol,
                                       'randomic': bool(args.randomic),
                                       'relativeconv': bool(args.relconv),
                                       'which_minres': args.minres})
-
+        print u[-1].vector().array()
         if monitor is not None:
             if not hasattr(module, 'transform'):
                 transform = lambda h, u: u

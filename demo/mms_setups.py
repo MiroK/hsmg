@@ -197,14 +197,14 @@ def curl_curl_2d():
     return (sigma_exact, p_exact), (f_rhs, g_rhs)
 
 
-def paper_mortar_2d():
+def paper_mortar_2d(eps):
     '''
     With \Omega = [0, 1]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
 
     -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
     \Delta u_2 + u_2 = f_2 in \Omega_2
     n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
-    u1 - u2 = g on \Gamma
+    eps*(u1 - u2) + grad(u1).n1 = g on \Gamma
     grad(u1).n1 = 0 in \partial\Omega_1
     '''
     pi = sp.pi
@@ -215,34 +215,7 @@ def paper_mortar_2d():
 
     f1 = -u1.diff(x, 2) - u1.diff(y, 2) + u1
     f2 = -u2.diff(x, 2) - u2.diff(y, 2) + u2
-    g = u1 - u2
-    # NOTE: the multiplier is grad(u).n and with the chosen data this
-    # means that it's zero on the interface
-    up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
-    fg = map(as_expression, (f1, f2, g))
-
-    return up, fg
-
-
-def paper_mortar_3d():
-    '''
-    With \Omega = [0, 1]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
-
-    -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
-    \Delta u_2 + u_2 = f_2 in \Omega_2
-    n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
-    u1 - u2 = g on \Gamma
-    grad(u1).n1 = 0 in \partial\Omega_1
-    '''
-    pi = sp.pi
-    x, y, z = sp.symbols('x[0] x[1] x[2]')
-    
-    u1 = sp.cos(4*pi*x)*sp.cos(4*pi*y)*sp.cos(4*pi*z)
-    u2 = 2*u1
-
-    f1 = -u1.diff(x, 2) - u1.diff(y, 2) - u1.diff(z, 2) + u1
-    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u1.diff(z, 2) + u2
-    g = u1 - u2
+    g = (u1 - u2)*eps  
     # NOTE: the multiplier is grad(u).n and with the chosen data this
     # means that it's zero on the interface
     up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
@@ -286,6 +259,35 @@ def paper_hdiv_2d(eps):
     return up, fg
 
 
+def paper_mortar_3d(eps):
+    '''
+    With \Omega = [0, 1]^d and \Omega_2 = [1/4, 3/4]^d the problem reads
+
+    -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
+    \Delta u_2 + u_2 = f_2 in \Omega_2
+    n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
+    eps*(u1 - u2) + grad(u1).n1 = g on \Gamma
+    grad(u1).n1 = 0 in \partial\Omega_1
+    '''
+    assert False
+    pi = sp.pi
+    x, y, z = sp.symbols('x[0] x[1] x[2]')
+    
+    u1 = sp.cos(4*pi*x)*sp.cos(4*pi*y)*sp.cos(4*pi*z)
+    u2 = 2*u1
+
+    f1 = -u1.diff(x, 2) - u1.diff(y, 2) - u1.diff(z, 2) + u1
+    f2 = -u2.diff(x, 2) - u2.diff(y, 2) - u1.diff(z, 2) + u2
+
+    g = (u1 - u2)*eps
+    # NOTE: the multiplier is grad(u).n and with the chosen data this
+    # means that it's zero on the interface
+    up = map(as_expression, (u1, u2, sp.S(0)))  # The flux
+    fg = map(as_expression, (f1, f2, g))
+
+    return up, fg
+
+
 def paper_hdiv_3d(eps):
     '''
     -Delta u1 + u1 = f1
@@ -296,6 +298,7 @@ def paper_hdiv_3d(eps):
 
     Solved in mixed form with sigma_i = -grad(u_i)
     '''
+    assert False
     pi = sp.pi
     x, y, z = sp.symbols('x[0] x[1] x[2]')
 

@@ -6,7 +6,7 @@
 # -\Delta u_1 + u_1 = f_1 in \Omega \ \Omega_2=\Omega_1
 #  \Delta u_2 + u_2 = f_2 in \Omega_2
 #  n1.grad(u_1) + n2.grad(u_2) = 0 on \partial\Omega_2=Gamma
-#  u1 - u2 = g on \Gamma
+#  eps(u1 - u2) + grad(u1).n1 = g on \Gamma
 #  grad(u1).n1 = 0 in \partial\Omega_1
 
 from fenics_ii.trace_tools.trace_assembler import trace_assemble
@@ -59,7 +59,7 @@ def compute_hierarchy(dim, n, nlevels):
     return compute_hierarchy(dim, n, 1) + compute_hierarchy(dim, n/2, nlevels-1)
 
 
-def setup_system(rhs_data, precond, meshes, mg_params_):
+def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     '''Solver'''
     outer_mesh, inner_mesh, gamma_mesh = meshes[0]
 
@@ -86,16 +86,18 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     a20 = inner(q, u1)*dxGamma
     a21 = inner(q, u2)*dxGamma
 
+    eps_ = sys_params['eps']
+    a22 = Constant(-1./eps_)*inner(p, q)*dxGamma
     f1, f2, g = rhs_data
 
     # NOTE: there is specific assumption of zero Neumann bcs
     L0 = inner(f1, v1)*dx
     # And also interface flux continuity
     L1 = inner(f2, v2)*dx
-    L2 = inner(g, q)*dxGamma
+    L2 = inner(g*Constant(1./eps_), q)*dxGamma
 
     # Blocks
-    A00, A11 = map(assemble, (a00, a11))
+    A00, A11, A22 = map(assemble, (a00, a11, a22))
     A02, A12 = [trace_assemble(a, gamma_mesh) for a in (a02, a12)]
     A12 *= -1
     A20, A21 = [trace_assemble(a, gamma_mesh) for a in (a20, a21)]
@@ -106,7 +108,7 @@ def setup_system(rhs_data, precond, meshes, mg_params_):
     # System
     AA = block_mat([[A00, 0, A02],
                     [0, A11, A12],
-                    [A20, A21, 0]])
+                    [A20, A21, A22]])
     bb = block_vec(bb)
 
     print 'Assembled AA'

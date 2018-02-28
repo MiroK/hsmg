@@ -21,7 +21,7 @@ from dolfin import *
 import numpy as np
 
 
-def setup_system(rhs_data, precond, meshes, mg_params_):
+def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     '''Solver'''
     omega_mesh = meshes[0]
     # Extract botttom edge meshes

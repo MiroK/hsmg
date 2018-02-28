@@ -55,7 +55,7 @@ def compute_hierarchy(dim, n, nlevels):
     return compute_hierarchy(dim, n, 1) + compute_hierarchy(dim, n/2, nlevels-1)
 
 
-def setup_system(rhs_data, precond, meshes, mg_params_, eps=1E-5):
+def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     '''Solver'''
     omega, gamma = meshes[0]
 
@@ -89,7 +89,7 @@ def setup_system(rhs_data, precond, meshes, mg_params_, eps=1E-5):
     a11 = -inner(u, v)*dX
 
     a20 = inner(dot(sigma('+'), n_gamma), q)*dxGamma
-    a22 = -Constant(eps)*inner(p, q)*dxGamma   
+    a22 = -Constant(sys_params['eps'])*inner(p, q)*dxGamma   
 
     A00, A01, A10, A11, A22 = map(assemble, (a00, a01, a10, a11, a22))
     A02 = trace_assemble(a02, gamma)

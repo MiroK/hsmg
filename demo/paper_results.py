@@ -3,7 +3,7 @@ import subprocess, os
 import numpy as np
 
 
-def _results(problem, nlevels, params, recompute):
+def _results(problem, eps, nlevels, params, recompute):
     '''Run the computations producing data files'''
     folder = subprocess.check_output(['git', 'describe']).strip()
 
@@ -12,7 +12,7 @@ def _results(problem, nlevels, params, recompute):
     else:
         os.mkdir(folder)
 
-    name = os.path.splitext(problem)[0]
+    name = '_'.join([os.path.splitext(problem)[0], str(eps)])
     if isinstance(nlevels, int):
         path = '_'.join([name, str(nlevels)])
         log_path = os.path.join(folder, path)
@@ -27,7 +27,8 @@ def _results(problem, nlevels, params, recompute):
         
         # Update
         params['-nlevels'] = nlevels
-
+        params['-eps_param'] = eps
+        
         cmd = ['python run_demo.py %s' % problem]
         cmd = ' '.join(cmd + ['%s %s' % (k, str(v)) for k, v in params.items()])
         print cmd
@@ -124,19 +125,20 @@ def _table(tex_file, data):
         table.append(row)
 
     # Tex stuff
-    tex = r'''
-\documentclass[10pt]{amsart}
+    # tex = r'''
+    # \documentclass[10pt]{amsart}
+    
+    # \usepackage[utf8x]{inputenc}
+    # \usepackage{amsmath, amssymb, amsthm}
+    # \usepackage[foot]{amsaddr}
+    # \usepackage{enumerate}
+    # \usepackage{fullpage}
+    # \usepackage{mathtools}
+    # \usepackage{multirow}
 
-\usepackage[utf8x]{inputenc}
-\usepackage{amsmath, amssymb, amsthm}
-\usepackage[foot]{amsaddr}
-\usepackage{enumerate}
-\usepackage{fullpage}
-\usepackage{mathtools}
-\usepackage{multirow}
+    # \begin{document}
 
-\begin{document}
-
+    tex=r'''
 %(comments)s
 \begin{table}
   \begin{tabular}{%(columns)s}
@@ -147,9 +149,9 @@ def _table(tex_file, data):
     \hline
   \end{tabular}
 \end{table}
-
-\end{document}
 '''
+#\end{document}
+
     # Document how things were computed
     comments = ''
     for mg, header in headers.items():
@@ -174,12 +176,14 @@ def _table(tex_file, data):
     for row in table:
         body = '\n'.join([body, ' & '.join(row) + r'\\'])
 
+    # Standalone
     with open(tex_file, 'w') as out:
         out.write(tex % {'comments': comments,
                          'columns': columns,
                          'header': header,
                          'body': body})
-
+        
+    # A reduced table for the paper
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -187,7 +191,7 @@ if __name__ == '__main__':
 
     # These are the settings for computations
     params = {'-Q': 'iters',  # Look at iteration counts
-              '-n': 8,        # Using no less then n refinements of the init mesh
+              '-n': 7,        # Using no less then n refinements of the init mesh
               '-D': 2,        # Two d problem
               '-B': 'mg',     # Hsmg realization of fract Lapl. precond
               '-minres': 'petsc',  # Using minres from petsc
@@ -195,7 +199,7 @@ if __name__ == '__main__':
               '-relconv': 1,       # Is relative
               '-randomic': 1}      # Start from random initial conditions
 
-    nlevels = [2, 3]               # Number of levels in mg hierarchy
+    nlevels = [2, 3, 4]               # Number of levels in mg hierarchy
     
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -213,5 +217,7 @@ if __name__ == '__main__':
         which = [which]
 
     problems = {'hdiv': 'paper_hdiv.py', 'mortar': 'paper_mortar.py'}
+    # Eps params
+    eps_params = {'hdiv': 1E-5, 'mortar': 1E5}
     for w in which:
-        _results(problems[w], nlevels, params, args.recompute)
+        _results(problems[w], eps_params[w], nlevels, params, args.recompute)
