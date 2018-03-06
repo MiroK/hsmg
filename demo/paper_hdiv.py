@@ -6,8 +6,7 @@ from fenics_ii.utils.convert import block_diagonal_matrix
 from block import block_mat, block_vec, block_bc, block_assemble
 from block.algebraic.petsc import LU, InvDiag
 
-from hsmg import HsNormMG
-from hsmg.hsquad import BP_H1Norm
+from hsmg import HsNormMG, HsNorm, BP_H1Norm
 
 from dolfin import *
 import numpy as np
@@ -112,7 +111,7 @@ def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     # uses eigenalue problem (-Delta + I) u = lambda I u. Also, no
     # boundary conditions are set
     if precond == 'eig':
-        B22 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+        B22 = HsNorm(Q, s=0.5)**-1
     elif precond ==  'mg':
         # Alternative B22 block:
         mg_params = {'nlevels': len(hierarchy)}

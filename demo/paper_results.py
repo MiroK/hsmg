@@ -195,7 +195,7 @@ if __name__ == '__main__':
               '-D': 2,        # Two d problem
               '-B': 'mg',     # Hsmg realization of fract Lapl. precond
               '-minres': 'petsc',  # Using minres from petsc
-              '-mes': 2,           # macroelement size
+              '-mes': 1,           # macroelement size
               '-tol': 1E-8,        # Error tolerance
               '-relconv': 1,       # Is relative
               '-randomic': 1}      # Start from random initial conditions

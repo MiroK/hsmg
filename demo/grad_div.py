@@ -15,8 +15,7 @@ from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 from block import block_mat, block_vec, block_bc
 from block.algebraic.petsc import LU, InvDiag
 
-from hsmg import HsNormMG
-from hsmg.hsquad import BP_H1Norm
+from hsmg import HsNormMG, HsNorm, BP_H1Norm
 
 from dolfin import *
 import numpy as np
@@ -80,7 +79,7 @@ def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
         P11 = HsNormMG(Q, bdry, 0.5, mg_params, mesh_hierarchy=hierarchy)
     elif precond == 'eig':
         # Bonito
-        P11 = H1_L2_InterpolationNorm(Q).get_s_norm_inv(s=0.5, as_type=PETScMatrix)
+        P11 = HsNorm(Q, s=0.5)**-1
     else:
         bp_params = {'k': lambda s, N, h: 5.0*1./ln(N),
                      'solver': 'cholesky'}
