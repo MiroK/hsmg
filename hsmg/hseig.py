@@ -1,3 +1,4 @@
+from block.block_base import block_base
 from scipy.sparse import csr_matrix
 from scipy.linalg import eigh
 from petsc4py import PETSc
@@ -5,7 +6,7 @@ import numpy as np
 from dolfin import *
 
 
-class InterpolationMatrix(PETScMatrix):
+class InterpolationMatrix(block_base):
     '''
     Given spd matrices A, M this matrix is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
@@ -15,22 +16,27 @@ class InterpolationMatrix(PETScMatrix):
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
-        # FIXME: handle singular (Laplacian w/out Dirichlet bcs)
-        eigw, eigv = eigh(A.array(), M.array())
-        assert all(w > 0 for w in eigw)
 
-        self.lmbda = eigw
-        self.U = eigv
-        self.M = M.array()
+        self.lmbda = None
+        self.U = None
+        self.matrix = None
+
+        self.A = A
+        self.M = M
+
         self.s = s
-
-        # Build the matrix representation
-        W = self.M.dot(self.U)
-        array = csr_matrix((W.dot(np.diag(self.lmbda**self.s))).dot(W.T))
-        A = PETSc.Mat().createAIJ(size=array.shape,
-                                  csr=(array.indptr, array.indices, array.data))
-        # Yes that' me
-        PETScMatrix.__init__(self, A)
+        
+    def matvec(self, b):
+        if self.matrix is None:
+            M = self.M.array()
+            self.lmbda, self.U = eigh(self.A.array(), M)
+            # Build the matrix representation
+            W = M.dot(self.U)
+            array = csr_matrix((W.dot(np.diag(self.lmbda**self.s))).dot(W.T))
+            A = PETSc.Mat().createAIJ(size=array.shape,
+                                      csr=(array.indptr, array.indices, array.data))
+            self.matrix = PETScMatrix(A)
+        return self.matrix*b
 
     def __pow__(self, power):
         '''A**-1 computes the inverse w/out recomputiong the eigenvalues'''
@@ -39,6 +45,9 @@ class InterpolationMatrix(PETScMatrix):
         # For the returdned object the **-1 is no longer defined - cbc
         # block allows only positve powers
         if power == -1:
+            if self.lmbda is None:
+                self.lmbda, self.U = eigh(self.A.array(), self.M.array())
+                
             W = self.U
             array = csr_matrix((W.dot(np.diag(self.lmbda**(-self.s)))).dot(W.T))
             A = PETSc.Mat().createAIJ(size=array.shape,
@@ -46,11 +55,7 @@ class InterpolationMatrix(PETScMatrix):
             return PETScMatrix(A)
         # Fallback to cbc.block
         else:
-            assert power >= 0
-            if power == 0:
-                return 1
-            else:
-                return self*(self**(power-1))
+            return block_base.__pow__(self, power)
 
 
 def HsNorm(V, s, bcs=None):
