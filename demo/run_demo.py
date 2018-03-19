@@ -58,6 +58,8 @@ if __name__ == '__main__':
                         choices=[0, 1], default=1)
     parser.add_argument('-minres', type=str, help='Which MinRes implementation to use',
                         choices=['herzog', 'block', 'petsc'], default='block')
+    # NOTE: herzog minres requires https://github.com/MiroK/cbc.block
+
     # Keep an eye on the error of the converged solution
     parser.add_argument('-error', type=int, help='Compare to analytical solution',
                         default=1)

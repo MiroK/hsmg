@@ -87,6 +87,8 @@ def iter_solve((AA, bb, BB, W), params):
     # x to functions
     w = [Function(Wi, xi) for Wi, xi in zip(W, x)]
 
+    print 'true res norm', (bb - AA*x).norm()
+    
     return size, niters, w
 
 

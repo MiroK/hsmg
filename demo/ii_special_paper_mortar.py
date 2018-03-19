@@ -11,6 +11,7 @@
 
 
 from block.algebraic.petsc import AMG
+from block import block_transpose
 from hsmg import HsNormMG, HsNorm, BP_H1Norm
 # Using new fenics_ii https://github.com/MiroK/fenics_ii
 from xii import *  
@@ -101,19 +102,17 @@ def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     L = [L0, L1, L2]
 
     AA, bb = map(ii_assemble, (a, L))
-    # Make sure that Trace block map from primal to primal
-    # E.g. AA[2, 0] is M*T - remove M
+    # Make sure that trace blocks map from primal to primal
+    # AA[2, 0] is M*T - remove M
     assert len(AA[2][0].chain) == 2
     AA[2][0] = AA[2][0].chain[-1]  # The trace matrix
     assert len(AA[2][1]) == 2
-    AA[2][1] = AA[2][1].chain[-1]  # The trace matrix
+    AA[2][1] = -1*AA[2][1].chain[-1]  # The trace matrix, the sign was with M
     # Block(T)*M
-    assert len(AA[0][2].chain) == 2 
-    AA[0][2] = AA[0][2].chain[0]  # Trace matrix
-    assert len(AA[1][2]) == 2
-    AA[1][2] = AA[1][2].chain[0]  # The trace matrix
+    AA[0][2] = block_transpose(AA[2][0])
+    AA[1][2] = block_transpose(AA[2][1])
 
-    # If last row us primal to primal then rhs of Q must be as well!
+    # If last row is primal to primal then rhs of Q must be in primal
     # Don't forget to scale eps the interpolant
     bb2 = interpolate(g, Q).vector()
     bb2 *= 1./eps_
