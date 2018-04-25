@@ -64,12 +64,19 @@ def HsNorm(V, s, bcs=None):
     m = inner(u, v)*dx
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
-        assert V.ufl_element().degree() == 0
 
         h = CellSize(V.mesh())
         h_avg = avg(h)
+        # NOTE: most of these terms vanish for DG zero. This is SIP
+        # formulation with all the penalty constants equal to 1
         # FIXME: bcs here
-        a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+        a = inner(grad(v), grad(u))*dx \
+            - inner(avg(grad(v)), jump(u, n))*dS \
+            - inner(jump(v, n), avg(grad(u)))*dS \
+            + h_avg**(-1)*inner(jump(v, n), jump(u, n))*dS \
+            - dot(grad(v), u*n)*ds \
+            - dot(v*n, grad(u))*ds \
+            + h**(-1)*v*u*ds
     else:
         a = inner(grad(u), grad(v))*dx
 
