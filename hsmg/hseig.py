@@ -67,6 +67,7 @@ def HsNorm(V, s, bcs=None):
 
         h = CellSize(V.mesh())
         h_avg = avg(h)
+        n = FacetNormal(V.mesh())
         # NOTE: most of these terms vanish for DG zero. This is SIP
         # formulation with all the penalty constants equal to 1
         # FIXME: bcs here
@@ -74,9 +75,9 @@ def HsNorm(V, s, bcs=None):
             - inner(avg(grad(v)), jump(u, n))*dS \
             - inner(jump(v, n), avg(grad(u)))*dS \
             + h_avg**(-1)*inner(jump(v, n), jump(u, n))*dS \
-            - dot(grad(v), u*n)*ds \
-            - dot(v*n, grad(u))*ds \
-            + h**(-1)*v*u*ds
+            - inner(grad(v), u*n)*ds \
+            - inner(v*n, grad(u))*ds \
+            + h**(-1)*inner(v, u)*ds
     else:
         a = inner(grad(u), grad(v))*dx
 
