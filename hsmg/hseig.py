@@ -65,7 +65,7 @@ def HsNorm(V, s, bcs=None):
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
 
-        h = CellSize(V.mesh())
+        h = CellDiameter(V.mesh())
         h_avg = avg(h)
         n = FacetNormal(V.mesh())
         # NOTE: most of these terms vanish for DG zero. This is SIP
@@ -74,10 +74,10 @@ def HsNorm(V, s, bcs=None):
         a = inner(grad(v), grad(u))*dx \
             - inner(avg(grad(v)), jump(u, n))*dS \
             - inner(jump(v, n), avg(grad(u)))*dS \
-            + h_avg**(-1)*inner(jump(v, n), jump(u, n))*dS \
+            + Constant(8)*h_avg**(-1)*inner(jump(v, n), jump(u, n))*dS \
             - inner(grad(v), u*n)*ds \
             - inner(v*n, grad(u))*ds \
-            + h**(-1)*inner(v, u)*ds
+            + Constant(4)*h**(-1)*inner(v, u)*ds
     else:
         a = inner(grad(u), grad(v))*dx
 
