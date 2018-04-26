@@ -65,7 +65,7 @@ def HsNorm(V, s, bcs=None):
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
 
-        h = CellDiameter(V.mesh())
+        h = CellSize(V.mesh())
         h_avg = avg(h)
         n = FacetNormal(V.mesh())
         # NOTE: most of these terms vanish for DG zero. This is SIP
