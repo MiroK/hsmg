@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 fig, ax = plt.subplots()
 
 
-def generator(hierarchy, tolerance, mg_params_):
+def generator(hierarchy, tolerance, mg_params_, neg_mg='prepost'):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
@@ -30,7 +30,7 @@ def generator(hierarchy, tolerance, mg_params_):
     mg_params.update(mg_params_)
                  
 
-    make_B = lambda s: HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)
+    make_B = lambda s: HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy, neg_mg=neg_mg)
 
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     # Wait for s to be send in
@@ -110,6 +110,8 @@ if __name__ == '__main__':
     parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
                         default=4)
 
+    parser.add_argument('-neg', type=str, help="What approach to use for negative s. (bpl or prepost",
+                        default='prepost', choices=['bpl', 'prepost'])
     args = parser.parse_args()
 
     # Fractionality series
@@ -133,7 +135,7 @@ if __name__ == '__main__':
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
             hierarchy = compute_hierarchy(D, n, nlevels=args.nlevels)
             gen = generator(hierarchy, tolerance=args.tol, mg_params_={'macro_size': args.mes,
-                                                                       'eta': args.eta})
+                                                                       'eta': args.eta}, neg_mg=args.neg)
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)

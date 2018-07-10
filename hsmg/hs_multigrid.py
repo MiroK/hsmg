@@ -176,7 +176,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params, neg_mg="prepost"):
             self.J = len(R) + 1
             self.mg_params = mg_params
 
-            assert between(s, (-1.0.,0.0))
+            assert between(s, (-1.0,0.0))
             self.s = s
             if "eta" not in self.mg_params.keys():
                 self.eta = 1.0
@@ -358,4 +358,4 @@ class HSAS(object):
 def _mass_lump_inv(M):
     """Return the inverse of the mass lumped diagonal matrix from M."""
     rsums = np.asarray( M.sum(axis=1).T)[0]
-    return sp.diag( 1./rsums, offsets=0, shape=M.shape, format="csr")
+    return sp.diags( 1./rsums, offsets=0, shape=M.shape, format="csr")

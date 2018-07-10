@@ -22,7 +22,7 @@ class HsNormMGBase(block_base):
     in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
     such that for all v \in V a(u, v) = m(u, v).
     '''
-    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -92,7 +92,7 @@ class HsNormMGBase(block_base):
 
         A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
+        self.mg = hs_multigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params, neg_mg=neg_mg)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
@@ -119,7 +119,7 @@ class HsNormMG(HsNormMGBase):
 
     Limit to Lagrange elements
     '''
-    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         u, v = TrialFunction(V), TestFunction(V)
 
         if V.ufl_element().family() == 'Discontinuous Lagrange':
@@ -135,7 +135,7 @@ class HsNormMG(HsNormMGBase):
             
         m = inner(u, v)*dx
         # Note the introduction
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, neg_mg)
 
         
 class Hs0NormMG(HsNormMGBase):
@@ -148,7 +148,7 @@ class Hs0NormMG(HsNormMGBase):
  
     NOTE: bcs are a must here.
     '''
-    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         assert bdry is not None
 
         u, v = TrialFunction(V), TestFunction(V)
@@ -166,6 +166,6 @@ class Hs0NormMG(HsNormMGBase):
         
         m = inner(u, v)*dx
 
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, neg_mg)
 
         
