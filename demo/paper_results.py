@@ -196,7 +196,7 @@ if __name__ == '__main__':
               '-B': 'mg',     # Hsmg realization of fract Lapl. precond
               '-minres': 'block',  # Using minres from petsc
               '-mes': 1,           # macroelement size
-              '-tol': 1E-12,        # Error tolerance
+              '-tol': 1E-8,        # Error tolerance
               '-relconv': 1,       # Is relative
               '-randomic': 1}      # Start from random initial conditions
 
@@ -205,7 +205,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('fract', type=str, help='Which fractionality',
-                        choices=['mortar', 'hdiv', 'hdiv2', 'all'])
+                        choices=['mortar', 'mortar2', 'hdiv', 'hdiv2', 'all'])
     
     parser.add_argument('-recompute', type=int, help='Force recomputing results',
                         choices=[0, 1], default=0)
@@ -217,8 +217,9 @@ if __name__ == '__main__':
     else:
         which = [which]
 
-    problems = {'hdiv': 'paper_hdiv.py', 'mortar': 'paper_mortar.py', 'hdiv2': 'paper2_hdiv.py'}
+    problems = {'hdiv': 'paper_hdiv.py', 'mortar': 'paper_mortar.py', 
+                'hdiv2': 'paper2_hdiv.py', 'mortar2': 'paper2_mortar.py'}
     # Eps params
-    eps_params = {'hdiv': 1E-15, 'mortar': 1E15, 'hdiv2': 1E-15}
+    eps_params = {'hdiv': 1E-15, 'mortar': 1E15, 'hdiv2': 1E-15, 'mortar2': 1E15}
     for w in which:
         _results(problems[w], eps_params[w], nlevels, params, args.recompute)
