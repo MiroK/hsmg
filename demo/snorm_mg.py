@@ -1,7 +1,6 @@
 # Multigrid as preconditioner for eigenvalue laplacians
 
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
-from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from hsmg import HsNormMG
 
@@ -11,20 +10,24 @@ from dolfin import *
 import numpy as np
 
 
-def main(hierarchy, s):
+def main(hierarchy, s, bcs=False):
     '''
     Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
     '''
     mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
-    
-    A = H1_L2_InterpolationNorm(V).get_s_norm(s=s, as_type=PETScMatrix)
+
+    if bcs:
+        bdry = DomainBoundary()
+        bcs = DirichletBC(V, Constant(0), bdry)
+    else:
+        bdry = None
+        bcs = []
+    A = H1_L2_InterpolationNorm(V, bcs=bcs).get_s_norm(s=s, as_type=PETScMatrix)
     
     mg_params = {'macro_size': 1,
                  'nlevels': len(hierarchy),
                  'eta': 1.0}
-    # FIXME, bdry = None does not work at the moment
-    bdry = None
     B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
 
     x = Function(V).vector()
@@ -34,12 +37,24 @@ def main(hierarchy, s):
     x.set_local(xrand)
 
     # Zero
-    b = Function(V).vector()
+    #b = Function(V).vector()
+    # Rhs
+    u, v = TrialFunction(V), TestFunction(V)
+    f = Expression('sin(k*pi*x[0])', k=1, degree=4)
+    # b = Function(V).vector()
+    if bdry is not None:
+        _, b = assemble_system(inner(u, v)*dx, inner(f, v)*dx, bcs)
+        bcs.apply(x)
+    else:
+        b = assemble(inner(f, v)*dx)
+        
     Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
 
     # Compute solution
     x = Ainv * b
 
+    # plot(Function(V, x), interactive=True)
+    
     niters = len(Ainv.residuals) - 1
     size = V.dim()
 
@@ -47,72 +62,64 @@ def main(hierarchy, s):
     cond = lmax/lmin
     
     return size, niters, cond
-
+   
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
+    from common import log_results, compute_hierarchy
+    from os.path import basename
     import argparse
+    import re
 
+    # python snorm_mg.py "-0.6 : 0.01 : -0.4" -D 1 -n 7 -log ./results/h1.txt
+    
+    D_options = ['1', '2',  # Xd in Xd
+                 '12', '13', '23',  # Xd in Yd no intersect
+                 '-12', '-13', '-23',  # Xd in Yd isect
+                 '012', '013', '023']  # Xd in Yd loop
+    
     parser = argparse.ArgumentParser()
-    parser.add_argument('s', type=float, help='Exponent of the operator')
-    parser.add_argument('-D', type=str, help='Solve 1d-1d, 2d-2d, 3d-3d, 1d-2d, 1d-3d, 2d-3d',
-                        default='1')
+    
+    parser.add_argument('s', help='Exponent of the operator or start:step:end')
+    parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
+                        default='1', choices=['all'] + D_options)  # Xd in Yd loop
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
+    parser.add_argument('-bcs', type=int, help='Apply boundary conditions',
+                        default=0)
+    parser.add_argument('-log', type=str, help='Path to file for storing results',
+                         default='')
     args = parser.parse_args()
 
-    dim = args.D
+    # Fractionality series
+    print args.s
+    try:
+        s_values = [float(args.s)]
+    except ValueError:
+        # Parse linspace
+        start, step, end = map(float, re.compile(r'[+-]?\d+(?:\.\d+)?').findall(args.s))
+        # FIXME: map needed bacause of silly types in fenicsii
+        s_values = map(float, np.arange(start, end+step, step))
 
-    # Embedding mesh
-    print '>>>', dim
-    if dim == '1':
-        Mesh = UnitIntervalMesh
-    elif dim in ('2', '12'):
-        Mesh = UnitSquareMesh
-    else:
-        Mesh = UnitCubeMesh
+    # Domain series
+    domains = D_options if args.D == 'all' else [args.D]
 
-    # Embedded
-    if len(dim) == 2:
-        dim = int(dim[-1])
-        if dim == 2:
-            gamma = 'near(std::max(fabs(x[0] - 0.5), fabs(x[1] - 0.5)), 0.25)'
-        else:
-            gamma = 'near(std::max(fabs(x[0] - 0.5), std::max(fabs(x[1] - 0.5), fabs(x[2] - 0.5))), 0.25)'
-        gamma = CompiledSubDomain(gamma)
-    else:
-        dim = int(dim)
-        gamma = None
-    
-    def compute_hierarchy(n, nlevels):
-        '''
-        The mesh where we want to solve is n. Here we compute previous
-        levels for setting up multrid. nlevels in total.
-        '''
-        assert nlevels > 0
+    for D in domains:
+        print '\t\033[1;37;32m%s\033[0m' % D
+        for s in s_values:
+            print '\t\t\033[1;37;34m%s\033[0m' % s
+            history, sizes = [], []
+            for n in [2**i for i in range(5, 5+args.n)]:
+                hierarchy = compute_hierarchy(D, n, nlevels=4)
 
-        if nlevels == 1:
-            mesh = Mesh(*(n, )*dim)
+                size, niters, cond = main(hierarchy, s=s, bcs=bool(args.bcs))
 
-            if gamma is None: return [mesh]
-
-            markers = FacetFunction('size_t', mesh, 0)
-            gamma.mark(markers, 1)
-
-            # plot(markers, interactive=True)
-            
-            assert sum(1 for _ in SubsetIterator(markers, 1)) > 0
-            # NOTE: !(EmbeddedMesh <:  Mesh)
-            return [EmbeddedMesh(mesh, markers, 1).mesh]
-
-        return compute_hierarchy(n, 1) + compute_hierarchy(n/2, nlevels-1)
-
-    history = []
-    for n in [2**i for i in range(5, 5+args.n)]:
-        hierarchy = compute_hierarchy(n, nlevels=4)
-
-        size, niters, cond = main(hierarchy, s=args.s)
-
-        msg = 'Problem size %d, current iters %d, cond %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
-        history.append((niters, cond))
+                msg = 'Problem size %d, current iters %d, cond %g, previous %r'
+                print '\033[1;37;31m%s\033[0m' % (msg % (size, niters, cond, history[::-1]))
+                history.append((niters, cond))
+                sizes.append((size, ))
+            # Change make header aware properly
+            args.s = s
+            args.D = D
+            args.log and log_results(args, sizes, history, name=basename(__file__),
+                                     fmt='%d %d %g')

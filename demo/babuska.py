@@ -12,13 +12,13 @@ from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
 from block import block_mat, block_vec, block_bc
-from block.iterative import MinRes, CGN
 from block.algebraic.petsc import AMG
 
 from hsmg import HsNormMG
 
 from dolfin import *
 import numpy as np
+
 
 def setup_system(precond, meshes):
     '''Solver'''
@@ -83,41 +83,6 @@ def setup_system(precond, meshes):
     return AA, bb, BB
 
     
-def iter_solve((AA, bb, BB)):
-    '''MinRes solve to get iteration counts'''
-    x = AA.create_vec()
-    x.randomize()
-
-    AAinv = MinRes(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=500, show=2)
-
-    # Compute solution
-    x = AAinv * bb
-
-    niters = len(AAinv.residuals) - 1
-    size = sum(xi.size() for xi in x)
-    
-    return size, niters
-
-
-def cond_solve((AA, bb, BB)):
-    '''Solve CGN to get the estimate of condition number'''
-    x = AA.create_vec()
-    x.randomize()
-
-    AAinv = CGN(AA, precond=BB, initial_guess=x, tolerance=1e-10, maxiter=1500, show=2)
-
-    # Compute solution
-    x = AAinv * bb
-
-    niters = len(AAinv.residuals) - 1
-    size = sum(xi.size() for xi in x)
-
-    lmin, lmax = np.sort(np.abs(AAinv.eigenvalue_estimates()))[[0, -1]]
-    cond = sqrt(lmax/lmin)
-    
-    return size, cond
-
-
 def compute_hierarchy(mesh_init, n, nlevels):
     '''
     The mesh where we want to solve is n. Here we compute previous
@@ -137,7 +102,9 @@ def compute_hierarchy(mesh_init, n, nlevels):
 if __name__ == '__main__':
     import argparse
     import numpy as np
+    from common import log_results, cond_solve, iter_solve
 
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('-D', type=int, help='Solve 2d or 3d problem',
                          default=2)
@@ -149,6 +116,8 @@ if __name__ == '__main__':
                         default='iters', choices=['iters', 'cond'])
     parser.add_argument('-B', type=str, help='eig preconditioner or MG preconditioner',
                         default='MG', choices=['eig', 'mg'])
+    parser.add_argument('-log', type=str, help='Path to file for storing results',
+                        default='')
     
     args = parser.parse_args()
 
@@ -157,7 +126,7 @@ if __name__ == '__main__':
 
     main = iter_solve if args.Q == 'iters' else cond_solve
     
-    history = []
+    sizes, history = [], []
     for n in [2**i for i in range(5, 5+args.n)]:
         # Embedded
         hierarchy = compute_hierarchy(Mesh, n, nlevels=args.nlevels)
@@ -166,5 +135,8 @@ if __name__ == '__main__':
         size, value = main(system)
 
         msg = 'Problem size %d, current %s is %g, previous %r'
-        print '\033[1;37;31m%s\033[0m' % (msg % (size, args.Q, value, history[::-1]))
-        history.append(value)
+        print '\033[1;37;31m%s\033[0m' % (msg % (sum(size), args.Q, value, history[::-1]))
+        history.append((value, ))
+        sizes.append(size)
+    # S, V, Q and cond or iter
+    args.log and log_results(args, sizes, {-0.5: history}, fmt='%d %d %g')
