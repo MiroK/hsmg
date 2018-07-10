@@ -191,12 +191,12 @@ if __name__ == '__main__':
 
     # These are the settings for computations
     params = {'-Q': 'iters',  # Look at iteration counts
-              '-n': 7,        # Using no less then n refinements of the init mesh
+              '-n': 6,        # Using no less then n refinements of the init mesh
               '-D': 2,        # Two d problem
               '-B': 'mg',     # Hsmg realization of fract Lapl. precond
-              '-minres': 'petsc',  # Using minres from petsc
+              '-minres': 'block',  # Using minres from petsc
               '-mes': 1,           # macroelement size
-              '-tol': 1E-8,        # Error tolerance
+              '-tol': 1E-12,        # Error tolerance
               '-relconv': 1,       # Is relative
               '-randomic': 1}      # Start from random initial conditions
 
