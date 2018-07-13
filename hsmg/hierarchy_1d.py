@@ -9,7 +9,7 @@ def coarsen_1d_mesh(mesh, TOL=1E-13, debug=True):
     '''Coarse a manifold mesh of lines'''
     # The idea is that a work horse is refinement of straight segments
     # These come in grouped by branch that they come from
-    branch_segments, color_f = find_segments(mesh, TOL, debug)
+    branch_segments = find_segments(mesh, TOL)
     x = mesh.coordinates()
     # Each branch consists is a list of segments. We keep this grouping
     coarse_segments, success = [], False
@@ -32,14 +32,16 @@ def coarsen_1d_mesh(mesh, TOL=1E-13, debug=True):
         coarse_segments.append(coarse_branch)
     # No?
     if not success:
-        return mesh, False, color_f
+        return mesh, False
     # Stich together
-    cmesh = mesh_from_segments(coarse_segments, TOL)
+    cmesh, color_f = mesh_from_segments(coarse_segments, TOL, debug)
 
-    return cmesh, True, color_f
+    if debug:
+        return cmesh, True, color_f
+    return cmesh, True
 
 
-def mesh_from_segments(branch_segments, TOL, color_f=None):
+def mesh_from_segments(branch_segments, TOL, debug):
     '''Create mesh given branches which contain segments'''
     # Compute first the collision between branches as they first and last
     # nodes contain the only shared nodes
@@ -64,15 +66,28 @@ def mesh_from_segments(branch_segments, TOL, color_f=None):
     # With this info each branch can extend the vertices and add cells
     # independently
     vertices, cells = list(vertices), []
+    color_offsets = [0]
     for tm, branch in zip(terminal_numbers, branch_segments):
         add_branch(branch, tm, vertices, cells)  # Bang method
+        # We add cells by branch so this way we keep track of color
+        color_offsets.append(len(cells))
 
     vertices = np.array(vertices, dtype=float)
     cells = np.array(cells, dtype='uintp')
     gdim = vertices.shape[1]
     
-    return make_mesh(vertices, cells, 1, gdim)
+    mesh = make_mesh(vertices, cells, 1, gdim)
 
+    if not debug:
+        return mesh, None
+    # Color
+    color_f = MeshFunction('size_t', mesh, 1, 0)
+    array = color_f.array()
+    for c, (f, l) in enumerate(zip(color_offsets[:-1], color_offsets[1:])):
+        array[f:l] = c
+
+    return mesh, color_f
+        
                      
 def add_branch(segments, terminal_indices, vertices, cells):
     '''Extend vertex and cell data by adding segment vertices and cells'''
@@ -111,7 +126,7 @@ def coarsen_segment(segment):
     return segment, True
 
 
-def find_segments(mesh, TOL, debug=False):
+def find_segments(mesh, TOL):
     '''
     Produce representation of straight segments of mesh of the form 
     [[v0, ..., vn],  [vn, ...., vm]] with v_i the vertex indices
@@ -120,9 +135,9 @@ def find_segments(mesh, TOL, debug=False):
     # at least one straight segment. So we make branches which can be walked
     # and the walk broken once the orientation changes. It is really not
     # necessary to do it this way but it simplifies stiching the mesh
-    branches, color_f = find_branches(mesh, debug)
+    branches = find_branches(mesh)
     
-    return [break_to_segments(branch, mesh, TOL) for branch in branches], color_f
+    return [break_to_segments(branch, mesh, TOL) for branch in branches]
 
 
 def break_to_segments(branch, mesh, TOL):
@@ -176,7 +191,7 @@ def break_to_segments(branch, mesh, TOL):
     return segments
 
 
-def find_branches(mesh, debug):
+def find_branches(mesh):
     '''
     A branch is a list of tuples (that are vertex indices) representing 
     edges of the mesh such that the 
@@ -211,21 +226,12 @@ def find_branches(mesh, debug):
     # Vertices for termination checking
     terminals = set(p[1] for p in starts)  # Unique
 
-    # Color branches
-    if debug:
-        color_f = MeshFunction('size_t', mesh, 1, 0)
-    else:
-        color_f = None
-
     branches = []
     while starts:
-        color = len(branches)
-        
         edge, vertex = starts.pop()
         # We have edge how do we link to others? Avoid vertex
         branch_coded = branch_from(edge, vertex, e2v, v2e, terminals)
 
-        color = len(branches)
         # Decode branch and update data structures
         branch = []
         for flip, index in branch_coded:
@@ -235,8 +241,6 @@ def find_branches(mesh, debug):
             else:
                 branch.append(edge)
 
-            if debug:
-                color_f[int(index)] = color
         # Pop start_edges! so that we don't walk back etc
         try:
             i = next(dropwhile(lambda i: starts[i][0] != index,
@@ -247,7 +251,7 @@ def find_branches(mesh, debug):
         
         branches.append(branch)
 
-    return branches, color_f
+    return branches
 
 
 def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
@@ -278,25 +282,27 @@ if __name__ == '__main__':
                         DomainBoundary, File, cells)
     from xii import EmbeddedMesh
 
-    mesh = UnitSquareMesh(10, 10, 'crossed')
+    mesh = UnitSquareMesh(32, 32, 'crossed')
     f = MeshFunction('size_t', mesh, 1, 0)
     DomainBoundary().mark(f, 1)
     CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
     CompiledSubDomain('near(x[1], 0.5)').mark(f, 1)
-    # CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
-    # CompiledSubDomain('near(1-x[0], x[1])').mark(f, 1)
+    CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
+    CompiledSubDomain('near(1-x[0], x[1])').mark(f, 1)
 
     # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
     # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
 
     
     mesh = EmbeddedMesh(f, 1)
-    print sum(c.volume() for c in cells(mesh))
-    print mesh.hmin()
+    print 'length', sum(c.volume() for c in cells(mesh))
+    print 'hmin', mesh.hmin()
+    print 
     
     cmesh, status, color_f = coarsen_1d_mesh(mesh)
-    print sum(c.volume() for c in cells(cmesh))
-    print cmesh.hmin()
+    print 'length', sum(c.volume() for c in cells(cmesh))
+    print 'hmin', cmesh.hmin()
+    print 'nbranches', len(set(color_f.array()))
 
     x = MeshFunction('size_t', mesh, 1, 0)
     File('foo.pvd') << x
