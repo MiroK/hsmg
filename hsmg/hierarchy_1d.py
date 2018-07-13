@@ -2,14 +2,16 @@ from itertools import ifilter, repeat, dropwhile, takewhile
 from mesh_write import make_mesh
 import numpy as np
 
+from dolfin import MeshFunction
 
-def coarsen_1d_mesh(mesh, TOL=1E-13):
+
+def coarsen_1d_mesh(mesh, TOL=1E-13, debug=True):
     '''Coarse a manifold mesh of lines'''
     # The idea is that a work horse is refinement of straight segments
     # These come in grouped by branch that they come from
-    branch_segments = find_segments(mesh, TOL)
+    branch_segments, color_f = find_segments(mesh, TOL, debug)
     x = mesh.coordinates()
-    
+    # Each branch consists is a list of segments. We keep this grouping
     coarse_segments, success = [], False
     for branch in branch_segments:
         coarse_branch = []
@@ -26,15 +28,18 @@ def coarsen_1d_mesh(mesh, TOL=1E-13):
                 coarse_branch.append(segment)
             # At least one success
             success = success or coarsened
+        # So the coarse branch is also collection of segments
         coarse_segments.append(coarse_branch)
     # No?
     if not success:
-        return mesh, False
+        return mesh, False, color_f
     # Stich together
-    return mesh_from_segments(mesh, coarse_segments, TOL), True
+    cmesh = mesh_from_segments(coarse_segments, TOL)
+
+    return cmesh, True, color_f
 
 
-def mesh_from_segments(mesh, branch_segments, TOL):
+def mesh_from_segments(branch_segments, TOL, color_f=None):
     '''Create mesh given branches which contain segments'''
     # Compute first the collision between branches as they first and last
     # nodes contain the only shared nodes
@@ -64,7 +69,7 @@ def mesh_from_segments(mesh, branch_segments, TOL):
 
     vertices = np.array(vertices, dtype=float)
     cells = np.array(cells, dtype='uintp')
-    gdim = mesh.geometry().dim()
+    gdim = vertices.shape[1]
     
     return make_mesh(vertices, cells, 1, gdim)
 
@@ -106,7 +111,7 @@ def coarsen_segment(segment):
     return segment, True
 
 
-def find_segments(mesh, TOL=1E-13):
+def find_segments(mesh, TOL, debug=False):
     '''
     Produce representation of straight segments of mesh of the form 
     [[v0, ..., vn],  [vn, ...., vm]] with v_i the vertex indices
@@ -115,9 +120,9 @@ def find_segments(mesh, TOL=1E-13):
     # at least one straight segment. So we make branches which can be walked
     # and the walk broken once the orientation changes. It is really not
     # necessary to do it this way but it simplifies stiching the mesh
-    branches = find_branches(mesh)
+    branches, color_f = find_branches(mesh, debug)
     
-    return [break_to_segments(branch, mesh, TOL) for branch in branches]
+    return [break_to_segments(branch, mesh, TOL) for branch in branches], color_f
 
 
 def break_to_segments(branch, mesh, TOL):
@@ -171,7 +176,7 @@ def break_to_segments(branch, mesh, TOL):
     return segments
 
 
-def find_branches(mesh):
+def find_branches(mesh, debug):
     '''
     A branch is a list of tuples (that are vertex indices) representing 
     edges of the mesh such that the 
@@ -206,6 +211,12 @@ def find_branches(mesh):
     # Vertices for termination checking
     terminals = set(p[1] for p in starts)  # Unique
 
+    # Color branches
+    if debug:
+        color_f = MeshFunction('size_t', mesh, 1, 0)
+    else:
+        color_f = None
+
     branches = []
     while starts:
         color = len(branches)
@@ -213,6 +224,8 @@ def find_branches(mesh):
         edge, vertex = starts.pop()
         # We have edge how do we link to others? Avoid vertex
         branch_coded = branch_from(edge, vertex, e2v, v2e, terminals)
+
+        color = len(branches)
         # Decode branch and update data structures
         branch = []
         for flip, index in branch_coded:
@@ -221,6 +234,9 @@ def find_branches(mesh):
                 branch.append(edge[::-1])
             else:
                 branch.append(edge)
+
+            if debug:
+                color_f[int(index)] = color
         # Pop start_edges! so that we don't walk back etc
         try:
             i = next(dropwhile(lambda i: starts[i][0] != index,
@@ -231,7 +247,7 @@ def find_branches(mesh):
         
         branches.append(branch)
 
-    return branches
+    return branches, color_f
 
 
 def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
@@ -259,7 +275,7 @@ def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
 
 if __name__ == '__main__':
     from dolfin import (UnitSquareMesh, BoundaryMesh, MeshFunction, CompiledSubDomain,
-                        DomainBoundary, MeshFunction, File, cells)
+                        DomainBoundary, File, cells)
     from xii import EmbeddedMesh
 
     mesh = UnitSquareMesh(10, 10, 'crossed')
@@ -278,9 +294,11 @@ if __name__ == '__main__':
     print sum(c.volume() for c in cells(mesh))
     print mesh.hmin()
     
-    cmesh, status = coarsen_1d_mesh(mesh)
+    cmesh, status, color_f = coarsen_1d_mesh(mesh)
     print sum(c.volume() for c in cells(cmesh))
     print cmesh.hmin()
 
     x = MeshFunction('size_t', mesh, 1, 0)
     File('foo.pvd') << x
+
+    File('bar.pvd') << color_f
