@@ -9,11 +9,14 @@
 # For 2d such path (Eulerian) might not even exist
 
 from itertools import ifilter, repeat, dropwhile, takewhile
-from functools import partial
 from mesh_write import make_mesh
+from functools import partial
 import numpy as np
+# We rely on pragmatic for coarsening https://github.com/meshadaptation/pragmatic
+from adaptivity import refine_metric, adapt, mesh_metric
 
 from dolfin import MeshFunction, Cell, SubMesh
+
 
 
 # def coarsen_2d_mesh(mesh, TOL=1E-13, debug=True):
@@ -51,23 +54,65 @@ from dolfin import MeshFunction, Cell, SubMesh
 #         return cmesh, True, color_f
 #     return cmesh, True
 
-def coarse_plane(plane, mesh):
+def pragmatic_coarsen(mesh):
+    '''Using pragmatic to coarse mesh'''
+    # FIXME: explore more
+    Mp = refine_metric(mesh_metric(mesh), 0.5)
+    return adapt(Mp)
+
+
+def coarsen_plane(plane, mesh, doit):
     '''Coarsen a plane coming here as a collection of cells(indices) of mesh'''
     # Represent plane as its own mesh (2d in 3d)
-    f = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
+    tdim = mesh.topology().dim()
+    assert tdim == 2
+    
+    f = MeshFunction('size_t', mesh, tdim, 0)
     values = f.array()
     values[list(plane)] = 1
 
     plane = SubMesh(mesh, f, 1)
+    File('before.pvd') << plane
 
     # Project to 2d
-    
+    n = Cell(plane, 0).cell_normal().array()
+    n /= np.linalg.norm(n)
+    # Define first an orthogonal system
+    t1 = np.array((n[1]-n[2], n[2]-n[0], n[0]-n[1]))
+    t1 /= np.linalg.norm(t1)
+    # Final tangent is orthogonal to the last two guys
+    t2 = np.cross(n, t1)
+    t2 == np.linalg.norm(t2)
+    # In this system I want coordinates of mesh.
+    x3d = plane.coordinates()
+    origin = x3d[0]
+    # Origin shift
+    x3d -= origin
 
+    # The new coordinates
+    x2d = np.c_[np.fromiter((t1.dot(x) for x in x3d), dtype=float),
+                np.fromiter((t2.dot(x) for x in x3d), dtype=float)]
+    # Cells are the same
+    cells = np.array(plane.cells(), dtype='uintp')
+
+    # Now get the 2d mesh for pragmatic
+    mesh2d = make_mesh(x2d, cells, tdim, tdim)
+    File('middle.pvd') << mesh2d
 
     # Coarse by pragmatic
-
+    cmesh, _ = doit(mesh2d)
 
     # Project back
+    x3d = np.array([t1*y[0] + t2*y[1] for y in cmesh.coordinates()])
+    x3d += origin
+
+    # Tadaa
+    cmesh = make_mesh(x3d, np.array(cmesh.cells(), dtype='uintp'), tdim, tdim+1)
+    
+    File('after.pvd') << cmesh
+
+    return cmesh
+    
 
 def find_planes(mesh, TOL):
     '''TODO'''
@@ -200,7 +245,7 @@ if __name__ == '__main__':
                         DomainBoundary, File, cells)
     from xii import EmbeddedMesh
 
-    mesh = UnitCubeMesh(2, 2, 2)
+    mesh = UnitCubeMesh(8, 8, 8)
 
 
     f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
@@ -219,7 +264,10 @@ if __name__ == '__main__':
     mesh = EmbeddedMesh(f, 1)
     mf = find_smooth_manifolds(mesh)
     for m in mf:
-        len(break_to_planes(m, mesh, TOL=1E-13))
+        foo = break_to_planes(m, mesh, TOL=1E-13)
+        print len(foo)
+
+        coarsen_plane(foo[0], mesh, doit=pragmatic_coarsen)
     # print 'length', sum(c.volume() for c in cells(mesh))
     # print 'hmin', mesh.hmin()
     # print 
