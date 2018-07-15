@@ -8,7 +8,7 @@
 # that in 1d some things are made simpler by walking the branch/segment.
 # For 2d such path (Eulerian) might not even exist
 
-from itertools import ifilter, repeat, dropwhile, takewhile
+from itertools import repeat, chain
 from mesh_write import make_mesh
 from functools import partial
 import numpy as np
@@ -18,41 +18,100 @@ from adaptivity import refine_metric, adapt, mesh_metric
 from dolfin import MeshFunction, Cell, SubMesh
 
 
+def mesh_from_planes(planes, TOL, debug):
+    '''TODO'''
+    tdim = planes[0][0].topology().dim()
+    gdim = planes[0][0].geometry().dim()
+    assert tdim == 2 and gdim == 3
+    
+    # Establish first the global(in the final) mesh numbering of shared vertices
+    vertices = None  # We put in shared first
+    local_to_global_maps = []
+    offsets = []  # We aim to color the planes in the final mesh
+    for plane in chain(*planes):
+        tdim = plane.topology().dim()
+        # The planes name the cells as they come so keep track of continuous
+        # chunks
+        offsets.append(plane.num_cells())
 
-# def coarsen_2d_mesh(mesh, TOL=1E-13, debug=True):
-#     '''Coarse a manifold mesh of triangles'''
-#     # The idea is that a work horse is refinement of straight segments
-#     # These come in grouped by branch that they come from
-#     branch_segments = find_segments(mesh, TOL)
-#     x = mesh.coordinates()
-#     # Each branch consists is a list of segments. We keep this grouping
-#     coarse_segments, success = [], False
-#     for branch in branch_segments:
-#         coarse_branch = []
-#         # Go over segments in this branch
-#         for s in branch:
-#             segment = x[s]
-#             # Work horse
-#             csegment, coarsened = coarsen_segment(segment)
-#             # Might fail but some other segment could succeed
-#             if coarsened:
-#                 coarse_branch.append(csegment)
-#                 # so we proceeed with the original
-#             else:
-#                 coarse_branch.append(segment)
-#             # At least one success
-#             success = success or coarsened
-#         # So the coarse branch is also collection of segments
-#         coarse_segments.append(coarse_branch)
-#     # No?
-#     if not success:
-#         return mesh, False
-#     # Stich together
-#     cmesh, color_f = mesh_from_segments(coarse_segments, TOL, debug)
+        # Who is a boundary facet
+        facet_f = MeshFunction('size_t', plane, tdim-1, 0)
+        DomainBoundary().mark(facet_f, 1)
 
-#     if debug:
-#         return cmesh, True, color_f
-#     return cmesh, True
+        # Need its vertices
+        plane.init(tdim-1, 0)
+        f2v = plane.topology()(tdim-1, 0)
+
+        bdry_vertices = np.hstack(map(f2v, np.where(facet_f.array() == 1)[0]))
+        # Unique
+        bdry_vertices = list(set(bdry_vertices))
+        
+        print '>>', bdry_vertices
+        x = plane.coordinates()
+        if vertices is None:
+            vertices = x[bdry_vertices]
+            lg_map = dict(zip(bdry_vertices, range(len(bdry_vertices))))
+        else:
+            # Try to look up each boundry vertex
+            x = x[bdry_vertices]
+
+            lg_map = {}
+            new_vertices = []
+            for local_i, xi in zip(bdry_vertices, x):
+                dist = np.sqrt(np.sum((vertices - xi)**2, 1))
+                global_i = np.argmin(dist)
+                # It is new
+                if dist[global_i] > TOL:
+                    global_i = len(vertices)  + len(new_vertices)  # We add and this is the index
+                    new_vertices.append(xi)
+                    print 'adding', xi, 'as', global_i
+                else:
+                    print 'found', xi, 'as', global_i
+                    
+                lg_map[local_i] = global_i
+            vertices = np.row_stack([vertices, np.array(new_vertices)])
+        print vertices
+        local_to_global_maps.append(lg_map)
+    print local_to_global_maps
+    
+    # Each plane can now add the unshared vertices
+    for plane, lg_map in zip(chain(*planes), local_to_global_maps):
+        unshared_i = list(set(range(plane.num_vertices())) - set(lg_map.keys()))
+        # Update the mapping - we know how many coords to add
+        nv = len(vertices)   # First global index
+        lg_map.update(dict(zip(unshared_i, range(nv, nv+len(unshared_i)))))
+        # Actually add those vertices
+        vertices = np.row_stack([vertices, plane.coordinates()[unshared_i]])
+        print 'Inner', unshared_i
+        print 'inner x', plane.coordinates()[unshared_i]
+        print
+    # It remains to compute the cells of the global mesh
+    cells = []
+    for plane, lg_map in zip(chain(*planes), local_to_global_maps):
+        new = map(lg_map.__getitem__, plane.cells().flat)
+        print lg_map
+        for row0, row1 in zip(plane.cells(), np.array(new).reshape((-1, 3))):
+            print row0, '->', row1
+        print
+        cells.extend(new)
+    cells = np.array(cells, dtype='uintp').reshape((-1, 3))
+    print cells
+    # And make the global coarse mesh
+    mesh =  make_mesh(vertices, cells, tdim, gdim)
+
+    if not debug:
+        return mesh
+
+    # Plane marking cell function
+    cell_f = MeshFunction('size_t', mesh, tdim, 0)
+    values = cell_f.array()
+
+    offsets = np.r_[0, np.cumsum(offsets)]
+    for color, (first, last) in enumerate(zip(offsets[:-1], offsets[1:]), 1):
+        values[first:last] = color
+
+    return mesh, cell_f
+
 
 def pragmatic_coarsen(mesh):
     '''Using pragmatic to coarse mesh'''
@@ -72,8 +131,7 @@ def coarsen_plane(plane, mesh, doit):
     values[list(plane)] = 1
 
     plane = SubMesh(mesh, f, 1)
-    File('before.pvd') << plane
-
+    
     # Project to 2d
     n = Cell(plane, 0).cell_normal().array()
     n /= np.linalg.norm(n)
@@ -85,32 +143,30 @@ def coarsen_plane(plane, mesh, doit):
     t2 == np.linalg.norm(t2)
     # In this system I want coordinates of mesh.
     x3d = plane.coordinates()
-    origin = x3d[0]
+    origin = x3d[0].copy()
     # Origin shift
     x3d -= origin
 
-    # The new coordinates
+    # The new coordinates; FIXME: vectorize
     x2d = np.c_[np.fromiter((t1.dot(x) for x in x3d), dtype=float),
                 np.fromiter((t2.dot(x) for x in x3d), dtype=float)]
     # Cells are the same
     cells = np.array(plane.cells(), dtype='uintp')
 
-    # Now get the 2d mesh for pragmatic
+    # # Now get the 2d mesh for pragmatic
     mesh2d = make_mesh(x2d, cells, tdim, tdim)
-    File('middle.pvd') << mesh2d
-
-    # Coarse by pragmatic
+    # Coarse by pragmatic -> get out the coordinates and cells
     cmesh, _ = doit(mesh2d)
 
-    # Project back
-    x3d = np.array([t1*y[0] + t2*y[1] for y in cmesh.coordinates()])
-    x3d += origin
+    # Project back; FIXNE: vectorize
+    y3d = np.array([t1*y[0] + t2*y[1] for y in cmesh.coordinates()])
+    y3d += origin
+
+    ycells = np.array(cmesh.cells(), dtype='uintp')
 
     # Tadaa
-    cmesh = make_mesh(x3d, np.array(cmesh.cells(), dtype='uintp'), tdim, tdim+1)
+    cmesh = make_mesh(y3d, ycells, tdim, tdim+1)
     
-    File('after.pvd') << cmesh
-
     return cmesh
     
 
@@ -244,42 +300,37 @@ if __name__ == '__main__':
     from dolfin import (UnitCubeMesh, BoundaryMesh, MeshFunction, CompiledSubDomain,
                         DomainBoundary, File, cells)
     from xii import EmbeddedMesh
+    from itertools import chain
 
     mesh = UnitCubeMesh(8, 8, 8)
 
 
     f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    DomainBoundary().mark(f, 1)
-    CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
-    # CompiledSubDomain('near(x[1], 0.5)').mark(f, 1)
+    # DomainBoundary().mark(f, 1)
+    # CompiledSubDomain('near(x[0], 0)').mark(f, 0)
+    # CompiledSubDomain('near(x[0], 1)').mark(f, 0)
+
+    CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
     # CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     # CompiledSubDomain('near(1-x[0], x[1])').mark(f, 1)
 
-    # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
-    # CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
-    #CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
+    CompiledSubDomain('near(x[0], 0)').mark(f, 1)
+    # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
+    CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
     #CompiledSubDomain('near(x[0], 1.)').mark(f, 1)
 
     
     mesh = EmbeddedMesh(f, 1)
-    mf = find_smooth_manifolds(mesh)
-    for m in mf:
-        foo = break_to_planes(m, mesh, TOL=1E-13)
-        print len(foo)
+    manifold_planes = find_planes(mesh, 1E-13)
+    cplanes = [[coarsen_plane(p, mesh, doit=pragmatic_coarsen) for p in manifold]
+               for manifold in manifold_planes]
+    cmesh, after = mesh_from_planes(cplanes, 1E-13, True)
 
-        coarsen_plane(foo[0], mesh, doit=pragmatic_coarsen)
-    # print 'length', sum(c.volume() for c in cells(mesh))
-    # print 'hmin', mesh.hmin()
-    # print 
-    
-    # cmesh, status, color_f = coarsen_1d_mesh(mesh)
-    # print 'length', sum(c.volume() for c in cells(cmesh))
-    # print 'hmin', cmesh.hmin()
-    # print 'nbranches', len(set(color_f.array()))
-
-    x = MeshFunction('size_t', mesh, 2, 0)
-    for c, m in enumerate(mf, 1):
+    before = MeshFunction('size_t', mesh, 2, 0)
+    for c, m in enumerate(chain(*manifold_planes), 1):
         for i in m:
-            x[int(i)] = c
+            before[int(i)] = c
 
-    File('bar.pvd') << x
+    File('before.pvd') << before
+
+    File('after.pvd') << after

@@ -54,10 +54,13 @@ anisotropically.
 """
 
 import ctypes, ctypes.util, numpy, scipy.sparse, scipy.sparse.linalg, collections
-from numpy import array, zeros, ones, any, arange, isnan
+from numpy import array, zeros, ones, any, arange, isnan, array
 from numpy.linalg import eigh as pyeig
 from itertools import combinations
 from dolfin import *
+
+from mesh_write import make_mesh
+
 
 __all__ = ["_libpragmatic",
            "InvalidArgumentException",
@@ -123,31 +126,22 @@ def set_mesh(n_xy, n_enlist, mesh=None, dx=None, debugon=False):
   #       should be off for curved geometries.
   #OUTOUT: DOLFIN MESH
   startTime = time()
-  nvtx = n_xy.shape[1]
-  n_mesh = Mesh()
-  ed = MeshEditor()
-  dim = len(n_xy)
-  ed.open(n_mesh, str({2: triangle}[dim]), dim, dim)
-  ed.init_vertices(nvtx) #n_NNodes.value
+  
   if len(n_xy) == 1:
-   for i in range(nvtx):
-    ed.add_vertex(i, n_xy[0,i])
-   ed.init_cells(int(len(n_enlist)/2))
-   for i in range(int(len(n_enlist)/2)): #n_NElements.value
-    ed.add_cell(i, n_enlist[i * 2], n_enlist[i * 2 + 1])
+    vertices = n_xy.T
+    cells = array(n_enlist.reshape((-1, 3)), dtype='uintp')
+       
   elif len(n_xy) == 2:
-   for i in range(nvtx): #n_NNodes.value
-     ed.add_vertex(i, n_xy[0,i], n_xy[1,i])
-   ed.init_cells(int(len(n_enlist)/3)) #n_NElements.value
-   for i in range(int(len(n_enlist)/3)): #n_NElements.value
-     ed.add_cell(i, n_enlist[i * 3], n_enlist[i * 3 + 1], n_enlist[i * 3 + 2])
+    vertices = n_xy.T
+    cells = array(n_enlist.reshape((-1, 3)), dtype='uintp')
+    
   else: #3D
-   for i in range(nvtx): #n_NNodes.value
-     ed.add_vertex(i, n_xy[0,i], n_xy[1,i], n_xy[2,i])
-   ed.init_cells(int(len(n_enlist)/4)) #n_NElements.value
-   for i in range(int(len(n_enlist)/4)): #n_NElements.value
-     ed.add_cell(i, n_enlist[i * 4], n_enlist[i * 4 + 1], n_enlist[i * 4 + 2], n_enlist[i * 4 + 3])
-  ed.close()
+    vertices = n_xy.T
+    cells = array(n_enlist.reshape((-1, 4)), dtype='uintp')
+
+  dim = vertices.shape[1]
+  n_mesh = make_mesh(vertices, cells, dim, dim)
+  
   info("mesh definition took %0.1fs (not vectorized)" % (time()-startTime))
   if debugon==True and dx is not None:
     # Sanity check to be deleted or made optional
