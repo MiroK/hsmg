@@ -255,6 +255,9 @@ def find_smooth_manifolds(mesh):
     # Facets for termination checking
     terminals = set(p[1] for p in starts)  # Unique
 
+    print 'starts', set(p[0] for p in starts)
+    print 'terminals', terminals
+
     manifolds = []
     while starts:
         cell, facet = starts.pop()
@@ -305,7 +308,7 @@ if __name__ == '__main__':
     from xii import EmbeddedMesh
     from itertools import chain
 
-    mesh = UnitCubeMesh(8, 8, 8)
+    mesh = UnitCubeMesh(2, 2, 2)
 
 
     f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
@@ -324,16 +327,17 @@ if __name__ == '__main__':
 
     
     mesh = EmbeddedMesh(f, 1)
-    manifold_planes = find_planes(mesh, 1E-13)
-    cplanes = [[coarsen_plane(p, mesh, doit=pragmatic_coarsen) for p in manifold]
-               for manifold in manifold_planes]
-    cmesh, after = mesh_from_planes(cplanes, 1E-13, True)
+    x = find_smooth_manifolds(mesh)
+    # manifold_planes = find_planes(mesh, 1E-13)
+    # cplanes = [[coarsen_plane(p, mesh, doit=pragmatic_coarsen) for p in manifold]
+    #            for manifold in manifold_planes]
+    # cmesh, after = mesh_from_planes(cplanes, 1E-13, True)
 
     before = MeshFunction('size_t', mesh, 2, 0)
-    for c, m in enumerate(chain(*manifold_planes), 1):
+    for c, m in enumerate(x, 1):
         for i in m:
             before[int(i)] = c
 
     File('before.pvd') << before
 
-    File('after.pvd') << after
+    # File('after.pvd') << after
