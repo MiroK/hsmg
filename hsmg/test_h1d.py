@@ -5,7 +5,7 @@ from hierarchy_1d import (find_branches, find_segments,
                           mesh_from_segments,
                           coarsen_1d_mesh
 )
-from mesh_hierarchy import mesh_hierarchy
+from mesh_hierarchy import mesh_hierarchy, is_nested
 
 
 from dolfin import (UnitSquareMesh, DomainBoundary, MeshFunction, CompiledSubDomain,
@@ -236,6 +236,18 @@ def test_hierarchy_short():
     # 16 8 4 2 1
     assert len(mesh_hierarchy(mesh, 6)) == 5
 
+
+def test_hierarchy_nest():
+    mesh = UnitSquareMesh(16, 16)
+    f = MeshFunction('size_t', mesh, 1, 0)
+    DomainBoundary().mark(f, 1)
+    CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
+    mesh = EmbeddedMesh(f, 1)
+    # 8 4 2
+    hierarchy = mesh_hierarchy(mesh, 3)
+
+    assert is_nested(hierarchy)
+
     
 # --------------------------------------------------------------------
 
@@ -251,10 +263,10 @@ if __name__ == '__main__':
 
     # test_mesh_stitch()
 
-    # test_coarsen_fail()
-    
+    # test_coarsen_fail()    
     # test_coarsen()
 
     # test_hierarchy()
+    # test_hierarchy_short()
 
-    test_hierarchy_short()
+    test_hierarchy_nest()
