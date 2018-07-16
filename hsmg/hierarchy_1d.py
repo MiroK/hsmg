@@ -5,48 +5,12 @@ import numpy as np
 from dolfin import MeshFunction
 
 
-def coarsen_1d_mesh(mesh, TOL=1E-13, debug=True):
-    '''Coarse a manifold mesh of lines'''
-    # The idea is that a work horse is refinement of straight segments
-    # These come in grouped by branch that they come from
-    branch_segments = find_segments(mesh, TOL)
-    x = mesh.coordinates()
-    # Each branch consists is a list of segments. We keep this grouping
-    coarse_segments, success = [], False
-    for branch in branch_segments:
-        coarse_branch = []
-        # Go over segments in this branch
-        for s in branch:
-            segment = x[s]
-            # Work horse
-            csegment, coarsened = coarsen_segment(segment)
-            # Might fail but some other segment could succeed
-            if coarsened:
-                coarse_branch.append(csegment)
-                # so we proceeed with the original
-            else:
-                coarse_branch.append(segment)
-            # At least one success
-            success = success or coarsened
-        # So the coarse branch is also collection of segments
-        coarse_segments.append(coarse_branch)
-    # No?
-    if not success:
-        return mesh, False
-    # Stich together
-    cmesh, color_f = mesh_from_segments(coarse_segments, TOL, debug)
-
-    if debug:
-        return cmesh, True, color_f
-    return cmesh, True
-
-
-def mesh_from_segments(branch_segments, TOL, debug):
+def mesh_from_segments(branch_segments, TOL):
     '''Create mesh given branches which contain segments'''
     # Compute first the collision between branches as they first and last
     # nodes contain the only shared nodes
     vertices = np.array([branch_segments[0][0][0]])
-
+    # Get global vertex numbers
     terminal_numbers = []
     for i, bi in enumerate(branch_segments):
         branch_terminals = bi[0][0], bi[-1][-1]
@@ -69,7 +33,8 @@ def mesh_from_segments(branch_segments, TOL, debug):
     color_offsets = [0]
     for tm, branch in zip(terminal_numbers, branch_segments):
         add_branch(branch, tm, vertices, cells)  # Bang method
-        # We add cells by branch so this way we keep track of color
+        # We add cells by branch (continuous chunks) so this way we keep
+        # track of color
         color_offsets.append(len(cells))
 
     vertices = np.array(vertices, dtype=float)
@@ -78,12 +43,10 @@ def mesh_from_segments(branch_segments, TOL, debug):
     
     mesh = make_mesh(vertices, cells, 1, gdim)
 
-    if not debug:
-        return mesh, None
     # Color
     color_f = MeshFunction('size_t', mesh, 1, 0)
     array = color_f.array()
-    for c, (f, l) in enumerate(zip(color_offsets[:-1], color_offsets[1:])):
+    for c, (f, l) in enumerate(zip(color_offsets[:-1], color_offsets[1:]), 1):
         array[f:l] = c
 
     return mesh, color_f
@@ -96,7 +59,7 @@ def add_branch(segments, terminal_indices, vertices, cells):
     for seg in segments[1:]:
         merged = np.row_stack([merged, seg[1:]])
 
-    # Now we know the index of of first and last guy
+    # Now we know global index of of first and last vertices (shared ones)
     start = len(vertices)  # The first free
     vertex_indices = range(start, start+len(merged)-2)  # new guyd
     vertex_indices = [terminal_indices[0]] + vertex_indices + [terminal_indices[-1]]
@@ -105,27 +68,8 @@ def add_branch(segments, terminal_indices, vertices, cells):
 
     vertices.extend(new_vertices)
     cells.extend(zip(vertex_indices[:-1], vertex_indices[1:]))
-        
 
-def coarsen_segment(segment):
-    '''
-    A segment is represented by a list of vertices where (i, i+1) 
-    is an edge. The coarsening is geometric.
-    '''
-    if len(segment) == 2:   # [---]
-        return segment, False
-
-    # The nested case okay for power of 2
-    nv = len(segment)
-    # Odd
-    # Otherwise geometric
-    A, B = segment[[0, -1]]
-    dX = B - A
-    segment = np.array([A + (B-A)*t for t in np.linspace(0, 1, nv/2+1)])
-
-    return segment, True
-
-
+    
 def find_segments(mesh, TOL):
     '''
     Produce representation of straight segments of mesh of the form 
@@ -133,8 +77,9 @@ def find_segments(mesh, TOL):
     '''
     # The idea is that any branch in the mesh must for such consist of
     # at least one straight segment. So we make branches which can be walked
-    # and the walk broken once the orientation changes. It is really not
-    # necessary to do it this way but it simplifies stiching the mesh
+    # and the walk broken once the orientation changes. This takes advantage
+    # of existence and simle computation of Eulerian paths in the graph
+    # and no intermediate mesh needs to be created until the final (cf 2d.)
     branches = find_branches(mesh)
     
     return [break_to_segments(branch, mesh, TOL) for branch in branches]
@@ -145,6 +90,7 @@ def break_to_segments(branch, mesh, TOL):
     We have a linked list of pairs which we break upon changes in 
     tangent orientation.
     '''
+    # So now geometrical (previously topologial) smoothness matters
     x = mesh.coordinates()
     
     if len(branch) == 1: return branch
@@ -167,7 +113,7 @@ def break_to_segments(branch, mesh, TOL):
         t = tangent(edge0)
         # Find the first change in tangent
         i = next(dropwhile(lambda i: not tan_change(t, tangent(branch[i])), range(len(branch))))
-        # Ensure that we start from 'corner'
+        # Ensure that we start from the kink
         branch = branch[i:] + branch[:i]
     
     segments = []
@@ -199,8 +145,11 @@ def find_branches(mesh):
     is either connected to one edge or to more than two edges
     ii) a loop
     '''
+    # NOTE: I say that the manifold is smooth at facet if it is connected
+    # to at most 2 cells.
+    
     # The relevant connectivity
-    # Precompute connectivity, tangent vectors
+    # Precompute connectivity
     mesh.init(0, 1)
     e2v = mesh.topology()(1, 0)
     v2e = mesh.topology()(0, 1)
@@ -210,10 +159,7 @@ def find_branches(mesh):
     for v in range(mesh.num_vertices()):
         # Bdry point
         ne = len(v2e(v))
-        if ne == 1:
-            starts.append((v2e(v)[0], v))
-        # Bifurcation
-        if ne > 2:
+        if ne == 1 or ne > 2:
             starts.extend(zip(v2e(v), repeat(v)))
             
     # We might have a single loop, then the start does not matter
@@ -231,7 +177,8 @@ def find_branches(mesh):
         edge, vertex = starts.pop()
         # We have edge how do we link to others? Avoid vertex
         branch_coded = branch_from(edge, vertex, e2v, v2e, terminals)
-
+        # Branch comes back as list of edge indices and a flag indicating
+        # orientation
         # Decode branch and update data structures
         branch = []
         for flip, index in branch_coded:
@@ -263,9 +210,12 @@ def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
     
     flip_branch = [(flip, edge)]
     while next_v not in terminals:
+        # In a smooth case we have 2 connected cells and one is the previous
+        # cell
         try:
             edge, = [e for e in v2e(next_v) if e != edge]
         except ValueError:
+            # We've reached the boundary (or bifurcation)
             break
 
         v0, v1 = e2v[edge]
@@ -274,7 +224,94 @@ def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
         next_v = v0 if flip else v1
         flip_branch.append((flip, edge))
     return flip_branch
-                    
+
+# Some coarsening functions        
+
+def coarsen_segment_uniform(segment):
+    '''
+    A segment is represented by a list of vertices where (i, i+1) 
+    is an edge. Coarsening it produces a uniform mesh.
+    '''
+    if len(segment) == 2: return segment, False
+
+    # The nested case okay for power of 2
+    nv = len(segment)
+    # Odd
+    # Otherwise geometric
+    A, B = segment[[0, -1]]
+    dX = B - A
+    segment = np.array([A + (B-A)*t for t in np.linspace(0, 1, nv/2+1)])
+
+    return segment, True
+
+
+def coarsen_segment_topological(segment):
+    '''
+    A segment is represented by a list of vertices where (i, i+1) 
+    is an edge. Just join 2 neighboring vertices.
+    '''
+    if len(segment) == 2: return segment, False
+
+    csegment = segment[::2]
+    
+    if len(segment) % 2 == 1: return csegment, True
+    
+    return np.r_[csegment, segment[-1]], True
+
+
+def coarsen_segment_iterative(segment):
+    '''
+    A segment is represented by a list of vertices where (i, i+1) 
+    is an edge. Produce mesh where hmin is doubled
+    '''
+    if len(segment) == 2: return segment, False
+
+    distances = lambda seg: np.array(map(np.linalg.norm, np.diff(seg, axis=0)))
+
+    dx = distances(segment)
+    hmin = this_hmin = min(dx)
+
+    while this_hmin < 2*hmin:
+        i = np.argmin(dx[:-1] + dx[1:])
+        segment = np.r_[segment[:i+1], segment[i+2:]]
+
+        dx = distances(segment)
+        this_hmin = min(dx)
+
+    return segment, True
+
+
+def coarsen_1d_mesh(mesh, coarsen_segment=coarsen_segment_iterative, TOL=1E-13):
+    '''Coarse a manifold mesh of lines'''
+    # The idea here is that the mesh coarsening should preserve straigth
+    # segments. To this end the mesh is first broken intro straight segments
+    # (ordered collection of vertices) these are then coarsened and finally
+    # stiched together to form the coarse mesh
+    branch_segments = find_segments(mesh, TOL)
+    x = mesh.coordinates()
+    # Each branch consists is a list of segments. We keep this grouping
+    coarse_segments, success = [], True
+    for branch in branch_segments:
+        coarse_branch = []
+        # Go over segments in this branch
+        for s in branch:
+            segment = x[s]
+            # Work horse
+            csegment, coarsened = coarsen_segment(segment)
+            # Each segment must be coarsed for the final mesh
+            if coarsened:
+                coarse_branch.append(csegment)
+            else:
+                coarse_branch.append(segment)  # The same
+            # Everybody needs to succeed
+            success = success and coarsened
+        # So the coarse branch is also collection of segments
+        coarse_segments.append(coarse_branch)
+    # For debugging purposes with use cell function marking branches
+    cmesh, color_f = mesh_from_segments(coarse_segments, TOL)
+
+    return cmesh, success, color_f
+
 # -------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -293,7 +330,6 @@ if __name__ == '__main__':
     # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
     # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
 
-    
     mesh = EmbeddedMesh(f, 1)
     print 'length', sum(c.volume() for c in cells(mesh))
     print 'hmin', mesh.hmin()

@@ -18,6 +18,9 @@ from adaptivity import refine_metric, adapt, mesh_metric
 from dolfin import MeshFunction, Cell, SubMesh
 
 
+def coarsen_2d_mesh():
+    pass
+
 def mesh_from_planes(planes, TOL, debug):
     '''TODO'''
     tdim = planes[0][0].topology().dim()
