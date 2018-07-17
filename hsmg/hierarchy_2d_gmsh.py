@@ -355,9 +355,9 @@ if __name__ == '__main__':
 
 
     f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    DomainBoundary().mark(f, 1)
-    # CompiledSubDomain('near(x[0], 0)').mark(f, 0)
-    # CompiledSubDomain('near(x[0], 1)').mark(f, 0)
+    # DomainBoundary().mark(f, 1)
+    CompiledSubDomain('near(x[0], 0.)').mark(f, 1)
+    CompiledSubDomain('near(x[1], 1.)').mark(f, 1)
 
     # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
     # CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
@@ -366,7 +366,7 @@ if __name__ == '__main__':
 
     # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
     # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
-    CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
+    # CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
     #CompiledSubDomain('near(x[0], 1.)').mark(f, 1)
 
 
@@ -377,6 +377,7 @@ if __name__ == '__main__':
     f = MeshFunction('size_t', mesh, 2, 0)
     values = f.array()
     for c, manifold in enumerate(manifolds, 1):
+        print manifold
         values[list(manifold.nodes)] = c
 
     File('gmsh_2d.pvd') << f
