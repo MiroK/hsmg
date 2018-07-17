@@ -7,3 +7,11 @@
 
 demo/*.dat
 demo/paper2/*
+
+*.xml
+*.vtu
+*.pvd
+*.msh
+
+demo/*.bk.py
+demo/*/

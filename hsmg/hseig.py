@@ -25,6 +25,9 @@ class InterpolationMatrix(block_base):
         self.M = M
 
         self.s = s
+
+    def create_vec(self, dim):
+        return self.A.create_vec(dim)
         
     def matvec(self, b):
         if self.matrix is None:
