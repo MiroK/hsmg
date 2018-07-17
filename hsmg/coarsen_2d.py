@@ -7,7 +7,8 @@ import subprocess, os
 import numpy as np
 
 
-Manifold = namedtuple('manifold', ['nodes', 'boundary'])
+from coarsen_common import smooth_manifolds, find_smooth_manifolds, Manifold
+
 GeoData = namedtuple('geodata', ['points', 'lines', 'polygons'])
 
 
@@ -83,7 +84,7 @@ class GmshCoarsener(object):
 
 
 def geo_file(mesh, path):
-    '''Reconstuct geometry definition from mesh'''
+    '''Write the geo file that is the recunstructed geometry of the mesh'''
     data = geo_file_data(mesh)
 
     with open(path, 'w') as f:
@@ -108,12 +109,21 @@ def geo_file(mesh, path):
             f.write('Plane Surface(%d) = {%d};\n' % (i, i))
             f.write('Physical Surface(%d) = {%d};\n\n' % (i, i))
 
-    return path
-            
+    return path            
 
         
 def geo_file_data(mesh):
-    '''Compute data for geofile of mesh'''
+    '''
+    Compute data for geofile of mesh. We perform coarsening by a representation 
+    of the geometry for gmsh and have it tessilate the domain.
+
+    INPUT:
+    mesh = Mesh (embedded)
+
+    OUPUT:
+    Geodata; domain represented as vertices, lines (defined in terms of 
+    vertices), polygons (defined in terms of lines)
+    '''
     manifolds = smooth_manifolds(mesh)
     
     polygons = []  # That form boundaries of planes
@@ -125,24 +135,28 @@ def geo_file_data(mesh):
     mapping = {}
     for vertex in chain(*polygons):
         index = mapping.get(vertex, len(mapping))
-        mapping[vertex] = index
-    # Translate
+        mapping[vertex] = index  # Mesh index to geo index
+    # Translate vertices
     for i in range(len(polygons)):
         polygons[i] = map(mapping.__getitem__, polygons[i])
 
+    # In the polygonal loop subsequent vertices form lines. Lines might
+    # be shared (not necessarily with same orientation) so we need to
+    # give them global index
     lines = []  # Computing global index
     polygons_lines = []
     for polygon in polygons:
         polygon_lines = []
         for v0, v1 in zip(polygon[:-1], polygon[1:]):
+            # Seen with same orientation
             if (v0, v1) in lines:
                 index = lines.index((v0, v1))
                 flip = False
-
+            # Seen with different orientation
             elif (v1, v0) in lines:
                 index = lines.index((v1, v0))
                 flip = True
-
+            # Not seen so we get to name it
             else:
                 index = len(lines)
                 lines.append((v0, v1))
@@ -150,6 +164,7 @@ def geo_file_data(mesh):
             polygon_lines.append((index, flip))
         polygons_lines.append(polygon_lines)
 
+    # Coordinates of geo points
     x = mesh.coordinates()
     points = np.zeros((len(mapping), x.shape[1]))
     for gi, li in mapping.items():
@@ -160,8 +175,18 @@ def geo_file_data(mesh):
 
 def plane_boundary(manifold, mesh, TOL=1E-13):
     '''
-    Given a plane manifold we are after the vertex indices where the 
-    condequent paits for the segments that bound it.
+    Given a plane manifold we are after the vertex indices where the consequent 
+    pairs form the segments that bound it. These vertices are indices where 
+    the loop that form the polygon changes orientation, i.e. tangent vectors
+    have kink here
+
+    INPUT:
+    manifold = Manifold
+    mesh = Mesh
+    TOL = float giving tolerance for changes in tangent
+
+    OUPUT:
+    loop = [int] (mesh vertex indices)
     '''
     mesh.init(1)
     mesh.init(1, 0)
@@ -178,7 +203,8 @@ def plane_boundary(manifold, mesh, TOL=1E-13):
         tangents[node] /= np.linalg.norm(tangents[node])
 
     def edge_is_smooth(e, nodes=nodes, e2n=edge2nodes, tangents=tangents):
-        # Vertex can be connected to many edges of the mesh
+        # Vertex can be connected to many edges of the mesh. Only want
+        # those edges that form the boundary
         edges = edge2nodes(e) & nodes  
         if len(edges) != 2:
             return False
@@ -187,9 +213,9 @@ def plane_boundary(manifold, mesh, TOL=1E-13):
         return abs(abs(tangents[e0].dot(tangents[e1])) - 1) < TOL
         
     segments = find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
-    # Only work with boundary/vertices for now
+    # Only work with .boundary(i.e. physical vertices) from now on
     segments = [list(segment.boundary) for segment in segments]
-    # Let's orient it - it must be a closed look
+    # Let's orient it - it must be a closed loop
     seg = segments.pop()
     assert len(seg) == 2
 
@@ -212,6 +238,13 @@ def break_to_planes(manifold, mesh, TOL=1E-13):
     '''
     Break manifold intro planes by smoothness understood in the sense 
     that the normal of 2 cells does not change orientation
+
+    INPUT:
+    manifold = Manifold
+    mesh = Mesh instance
+    
+    OUPUT:
+    list([Manifold])
     '''
     tdim = mesh.topology().dim()
 
@@ -228,120 +261,15 @@ def break_to_planes(manifold, mesh, TOL=1E-13):
 
     def edge_is_smooth(e, e2n=edge2nodes, normals=normals):
         cells = edge2nodes(e)
-        if len(cells) != 2:
+        # No point to filter cells here as more than 2 cells indicates manifold
+        # bdry which is also a plane boundary
+        if len(cells) != 2:  
             return False
         
         c0, c1 = cells
         return abs(abs(normals[c0].dot(normals[c1])) - 1) < TOL
         
     return find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
-    
-
-
-def smooth_manifolds(mesh):
-    '''
-    Break the mesh into manifold by smoothness understood as being connected 
-    to two facets.
-    '''
-    tdim = mesh.topology().dim()
-
-    mesh.init(tdim-1)
-    mesh.init(tdim, tdim-1)
-    mesh.init(tdim-1, tdim)
-
-    # Mappings for the general algorithm
-    nodes = set(range(mesh.num_entities(tdim)))
-    node2edges = lambda n, n2e=mesh.topology()(tdim, tdim-1): set(n2e(n))
-    edge2nodes = lambda e, e2n=mesh.topology()(tdim-1, tdim): set(e2n(e))
-    
-    edge_is_smooth = lambda e, e2n=edge2nodes: len(e2n(e)) == 2
-
-    return find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
-
-
-def find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth):
-    '''
-    Let there be a graph with nodes connected by edges. A smooth manifold 
-    is a collection of nodes connected together by smooth edges.
-
-    INPUT
-    nodes = set([int])
-    node2edges = int -> set([int])
-    edge2nodes = int -> set([int])
-    edge_is_smooth = int -> bool
-
-    OUTPUT:
-    list of (set(nodes), set(edges) that are boundary)
-    '''
-    
-    starts, terminals = set(), set()
-    # Let's find the possible starts - the idea being that we want to build
-    # from the non-smoothe edges
-    for node in nodes:
-        for edge in node2edges(node):
-            if not edge_is_smooth(edge):
-                starts.add(node)
-                terminals.add(edge)
-
-    # We might have a single loop, then the start does not matter
-    if not starts:
-        # First cell and one it's facet
-        starts, terminals = set((0, )), set()
-
-    manifolds = []
-    while starts:
-        node = starts.pop()
-        # Grow the manifold from node (only adding from nodes)
-        manifold = manifold_from(node, nodes, node2edges, edge2nodes, terminals)
-        # Burn bridges every node is part of only one manifold
-        starts.difference_update(manifold.nodes)
-
-        manifolds.append(manifold)
-    return manifolds
-
-
-def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
-    '''
-    Grow the manifold from node. Manifold is bounded by a subset of terminal 
-    edges
-
-    INPUT
-    node = int
-    node2edges = int -> set([int])
-    edge2nodes = int -> set([int])
-    edge_is_smooth = set([int])
-    
-    OUTPUT:
-    (set([int]), set([int])) given as named tuple nodes/boundary
-    '''
-    # We connect nodes with others over non-terminal edges
-    next_edges = node2edges(node)
-    manifold_bdry = next_edges & terminals
-    next_edges.difference_update(manifold_bdry)
-
-    manifold = set((node, ))
-    while next_edges:  # No terminals
-        next_e = next_edges.pop()
-        
-        # Nodes connected to it which are new
-        connected_nodes = edge2nodes(next_e) & nodes - manifold
-        if not connected_nodes:
-            continue
-        # At most 1
-        node,  = connected_nodes
-        manifold.add(node)
-        
-        # The connected node may contribute new edges
-        new_edges = node2edges(node) - set((next_e, ))  # Don't go back
-        # We're really interested only in those that can be links
-        manifold_bdry_ = new_edges & terminals
-        new_edges.difference_update(manifold_bdry_)
-        
-        manifold_bdry.update(manifold_bdry_)
-        next_edges.update(new_edges)
-
-    return Manifold(manifold, manifold_bdry)
-
 
 # --------------------------------------------------------------------
 
