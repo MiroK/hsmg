@@ -47,33 +47,20 @@ def find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth):
     list of (set(nodes), set(edges) that are boundary)
     '''
     
-    starts, terminals = set(), set()
-    # Let's find the possible starts - the idea being that we want to build
-    # from the non-smoothe edges
-    for node in nodes:
-        for edge in node2edges(node):
-            if not edge_is_smooth(edge):
-                starts.add(node)
-                terminals.add(edge)
-
-    # We might have a single loop, then the start does not matter
-    if not starts:
-        # First cell and one it's facet
-        starts, terminals = set((0, )), set()
-
     manifolds = []
-    while starts:
-        node = starts.pop()
+    while nodes:  # O(#nodes)
+        node = nodes.pop()
         # Grow the manifold from node (only adding from nodes)
-        manifold = manifold_from(node, nodes, node2edges, edge2nodes, terminals)
+        manifold = manifold_from(node, nodes, node2edges, edge2nodes, edge_is_smooth)
         # Burn bridges every node is part of only one manifold
-        starts.difference_update(manifold.nodes)
+        nodes.difference_update(manifold.nodes)
 
         manifolds.append(manifold)
+        
     return manifolds
 
 
-def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
+def manifold_from(node, nodes, node2edges, edge2nodes, edge_is_smooth):
     '''
     Grow the manifold from node using nodes. Manifold is bounded by a 
     subset of terminal edges
@@ -83,18 +70,20 @@ def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
     nodes = set([int])
     node2edges = int -> set([int])
     edge2nodes = int -> set([int])
-    edge_is_smooth = set([int])
+    terminals = set([int])
     
     OUTPUT:
     Manifold
+
+    # WORKS but is not (O(nodes)), actually O(nodes^2)
     '''
     # We connect nodes with others over non-terminal edges
     next_edges = node2edges(node)
-    manifold_bdry = next_edges & terminals
+    manifold_bdry = set(e for e in next_edges if not edge_is_smooth(e))
     next_edges.difference_update(manifold_bdry)
 
     manifold = set((node, ))
-    while next_edges:  # No terminals
+    while next_edges:  
         next_e = next_edges.pop()
         
         # Nodes connected to it which are new
@@ -108,7 +97,7 @@ def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
         # The connected node may contribute new edges
         new_edges = node2edges(node) - set((next_e, ))  # Don't go back
         # We're really interested only in those that can be links
-        manifold_bdry_ = new_edges & terminals
+        manifold_bdry_ = set(e for e in new_edges if not edge_is_smooth(e))
         new_edges.difference_update(manifold_bdry_)
         
         manifold_bdry.update(manifold_bdry_)
