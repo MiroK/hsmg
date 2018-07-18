@@ -1,5 +1,5 @@
-from hierarchy_2d_gmsh import (smooth_manifolds, break_to_planes, plane_boundary,
-                               GmshCoarsener)
+from coarsen_common import smooth_manifolds
+from coarsen_2d import break_to_planes, plane_boundary, GmshCoarsener
 
 from dolfin import (UnitCubeMesh, DomainBoundary, MeshFunction, CompiledSubDomain,
                     cells)
@@ -156,14 +156,14 @@ def test_not_coarsening():
 
 # -------------------------------------------------------------------
 
-# test_manifold_find(4)
-# test_manifold_find(6)
+test_manifold_find(4)
+test_manifold_find(6)
 
-# test_plane_find(4)
-# test_plane_find(8)
+test_plane_find(4)
+test_plane_find(8)
 
-# test_bdry_find_edges()
-# test_bdry_find_bdry()
+test_bdry_find_edges()
+test_bdry_find_bdry()
 
-# test_coarsening()
+test_coarsening()
 test_not_coarsening()

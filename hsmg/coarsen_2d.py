@@ -13,15 +13,29 @@ GeoData = namedtuple('geodata', ['points', 'lines', 'polygons'])
 
 
 class GmshCoarsener(object):
+    '''Coarsen mesh by calling gmsh'''
     def __init__(self, path):
-        root, geo = os.path.splitext(path)
-        assert geo == '.geo'
+        root, ext = os.path.splitext(path)
+        # Be anal about the extension
+        assert ext == '.geo'
 
         self.path = path
         self.root = root 
         self.geo_computed = False
 
     def coarsen(self, mesh):
+        '''
+        Make an attempt at coarsening the mesh.
+
+        INPUT:
+        mesh = Mesh
+
+        OUTPUT:
+        (Mesh, success flag, MeshFunction (marking planes for debugging))
+
+        '''
+        # The expensive geometry is computed only once as the assumption
+        # is that the coarsening can't introduce new polygons
         if not self.geo_computed:
             self.path = geo_file(mesh, self.path)
         # We want this size globally
@@ -35,18 +49,21 @@ class GmshCoarsener(object):
         msh_file = '.'.join([self.root, 'msh'])
         assert os.path.exists(msh_file)
 
-        # Package for dolfin
+        # Package for dolfin <- build the mesh in memory
         vertices, cells, cell_markers = GmshCoarsener.parse_msh(msh_file)
         cmesh = make_mesh(vertices, cells, tdim=2, gdim=3)
         color_f = MeshFunction('size_t', cmesh, 2, 0)
         color_f.array()[:] += cell_markers
 
+        # Did we actually manage to coarsen it?
         success = cmesh.hmin() > mesh.hmin()
 
         return  cmesh, success, color_f
 
     @staticmethod
     def parse_msh(msh_file):
+        '''Read in vertices, cells and markers from msh_file'''
+        # NOTE: 3d vertices, triangular cells
         vertices = []
         cells = []
         markers = []
@@ -71,7 +88,7 @@ class GmshCoarsener(object):
             for _ in range(nelements):
                 line = next(f).strip().split()[1:]  # Ignore index
                 eltype, _, marker, _, v0, v1, v2 = map(int, line)
-                assert eltype == 2
+                assert eltype == 2  # Must be triangular cells
                 cells.append((v0-1, v1-1, v2-1))
                 markers.append(marker)
 
@@ -80,6 +97,7 @@ class GmshCoarsener(object):
         vertices = np.array(vertices, dtype=float)
         cells = np.array(cells, dtype='uintp')
         markers = np.array(markers, dtype='uintp')
+        
         return vertices, cells, markers
 
 
