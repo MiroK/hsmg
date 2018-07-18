@@ -281,7 +281,7 @@ def coarsen_segment_iterative(segment):
     return segment, True
 
 
-def coarsen_1d_mesh(mesh, coarsen_segment=coarsen_segment_iterative, TOL=1E-13):
+def coarsen_1d_mesh(mesh, coarsen_segment, TOL=1E-13):
     '''Coarse a manifold mesh of lines'''
     # The idea here is that the mesh coarsening should preserve straigth
     # segments. To this end the mesh is first broken intro straight segments
@@ -311,6 +311,17 @@ def coarsen_1d_mesh(mesh, coarsen_segment=coarsen_segment_iterative, TOL=1E-13):
     cmesh, color_f = mesh_from_segments(coarse_segments, TOL)
 
     return cmesh, success, color_f
+
+
+class CurveCoarsener(object):
+    def __init__(self, method):
+        self.method = method
+
+    def coarsen(self, mesh):
+        return coarsen_1d_mesh(mesh, self.method)
+
+    
+CurveCoarsenerIterative = CurveCoarsener(coarsen_segment_iterative)
 
 # -------------------------------------------------------------------
 

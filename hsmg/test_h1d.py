@@ -1,10 +1,10 @@
-from hierarchy_1d import (find_branches, find_segments,
-                          coarsen_segment_uniform,
-                          coarsen_segment_topological,
-                          coarsen_segment_iterative,
-                          mesh_from_segments,
-                          coarsen_1d_mesh
-)
+from coarsen_1d import (find_branches, find_segments,
+                        coarsen_segment_uniform,
+                        coarsen_segment_topological,
+                        coarsen_segment_iterative,
+                        mesh_from_segments,
+                        CurveCoarsenerIterative)
+
 from mesh_hierarchy import mesh_hierarchy, is_nested
 
 
@@ -190,7 +190,7 @@ def test_coarsen_fail():
     DomainBoundary().mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
 
-    _, coarsened, color_f = coarsen_1d_mesh(mesh)
+    _, coarsened, color_f = CurveCoarsenerIterative.coarsen(mesh)
     assert not coarsened
 
     
@@ -201,7 +201,7 @@ def test_coarsen():
     CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
 
-    nmesh, coarsened, color_f = coarsen_1d_mesh(mesh)
+    nmesh, coarsened, color_f = CurveCoarsenerIterative.coarsen(mesh)
     # Succeeded
     assert coarsened
     # Preserved nbranches
@@ -224,7 +224,7 @@ def test_hierarchy():
     CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
     # 8 4 2
-    assert len(mesh_hierarchy(mesh, 3)) == 4
+    assert len(mesh_hierarchy(mesh, 3, coarsener=CurveCoarsenerIterative)) == 4
 
 
 def test_hierarchy_short():
@@ -234,7 +234,7 @@ def test_hierarchy_short():
     CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
     # 16 8 4 2 1
-    assert len(mesh_hierarchy(mesh, 6)) == 5
+    assert len(mesh_hierarchy(mesh, 6, coarsener=CurveCoarsenerIterative)) == 5
 
 
 def test_hierarchy_nest():
@@ -244,7 +244,7 @@ def test_hierarchy_nest():
     CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
     # 8 4 2
-    hierarchy = mesh_hierarchy(mesh, 3)
+    hierarchy = mesh_hierarchy(mesh, 3, coarsener=CurveCoarsenerIterative)
 
     assert is_nested(hierarchy)
 
@@ -254,19 +254,19 @@ def test_hierarchy_nest():
 
 if __name__ == '__main__':
 
-    # test_branch_find()
-    # test_segments_find()
+    test_branch_find()
+    test_segments_find()
     
-    # test_c_uniform()
-    # test_c_topological()
-    # test_c_iterative()
+    test_c_uniform()
+    test_c_topological()
+    test_c_iterative()
 
-    # test_mesh_stitch()
+    test_mesh_stitch()
 
-    # test_coarsen_fail()    
-    # test_coarsen()
+    test_coarsen_fail()    
+    test_coarsen()
 
-    # test_hierarchy()
-    # test_hierarchy_short()
+    test_hierarchy()
+    test_hierarchy_short()
 
     test_hierarchy_nest()

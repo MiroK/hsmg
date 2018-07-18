@@ -297,13 +297,13 @@ if __name__ == '__main__':
     from xii import EmbeddedMesh
     from itertools import chain
 
-    mesh = UnitCubeMesh(8, 8, 8)
+    mesh = UnitCubeMesh(16, 16, 16)
 
 
     f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    # DomainBoundary().mark(f, 1)
-    CompiledSubDomain('near(x[0], 0.)').mark(f, 1)
-    CompiledSubDomain('near(x[1], 1.)').mark(f, 1)
+    DomainBoundary().mark(f, 1)
+    #CompiledSubDomain('near(x[0], 0.)').mark(f, 1)
+    #CompiledSubDomain('near(x[1], 1.)').mark(f, 1)
 
     # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
     # CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
@@ -318,15 +318,15 @@ if __name__ == '__main__':
 
     mesh = EmbeddedMesh(f, 1)
 
-    manifolds = smooth_manifolds(mesh)
+    # manifolds = smooth_manifolds(mesh)
 
-    f = MeshFunction('size_t', mesh, 2, 0)
-    values = f.array()
-    for c, manifold in enumerate(manifolds, 1):
-        print manifold
-        values[list(manifold.nodes)] = c
+    # f = MeshFunction('size_t', mesh, 2, 0)
+    # values = f.array()
+    # for c, manifold in enumerate(manifolds, 1):
+    #     print manifold
+    #     values[list(manifold.nodes)] = c
 
-    File('gmsh_2d.pvd') << f
+    # File('gmsh_2d.pvd') << f
 
     # f = MeshFunction('size_t', mesh, 2, 0)
     # values = f.array()

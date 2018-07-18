@@ -1,5 +1,6 @@
 from coarsen_common import smooth_manifolds
 from coarsen_2d import break_to_planes, plane_boundary, GmshCoarsener
+from mesh_hierarchy import mesh_hierarchy
 
 from dolfin import (UnitCubeMesh, DomainBoundary, MeshFunction, CompiledSubDomain,
                     cells)
@@ -154,16 +155,35 @@ def test_not_coarsening():
 
     assert not success
 
+    
+def test_hierarchy():
+    f = Oshape(16)
+    mesh = EmbeddedMesh(f, 1)
+
+    assert len(mesh_hierarchy(mesh, 3, coarsener=GmshCoarsener('test.geo'))) == 4
+
 # -------------------------------------------------------------------
 
-test_manifold_find(4)
-test_manifold_find(6)
+# test_manifold_find(4)
+# test_manifold_find(6)
 
-test_plane_find(4)
-test_plane_find(8)
+# test_plane_find(4)
+# test_plane_find(8)
 
-test_bdry_find_edges()
-test_bdry_find_bdry()
+# test_bdry_find_edges()
+# test_bdry_find_bdry()
 
-test_coarsening()
-test_not_coarsening()
+# test_coarsening()
+# test_not_coarsening()
+
+# test_hierarchy()
+
+from dolfin import Timer
+
+for n in (2, 4, 8, 16, 32):
+    f = Oshape(n)
+    mesh = EmbeddedMesh(f, 1)
+
+    t = Timer('fpp')
+    smooth_manifolds(mesh)
+    print t.stop()
