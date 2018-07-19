@@ -23,25 +23,27 @@ def smooth_manifolds(mesh):
     mesh.init(tdim-1, tdim)
 
     # Mappings for the general algorithm
-    nodes = set(range(mesh.num_entities(tdim)))
-    node2edges = lambda n, n2e=mesh.topology()(tdim, tdim-1): set(n2e(n))
-    edge2nodes = lambda e, e2n=mesh.topology()(tdim-1, tdim): set(e2n(e))
+    node2edges = mesh.topology()(tdim, tdim-1)
+    node2edges = {n: set(node2edges(n)) for n in mesh.init(tdim)}
     
-    edge_is_smooth = lambda e, e2n=edge2nodes: len(e2n(e)) == 2
+    edge2nodes = mesh.topology()(tdim-1, tdim)
+    edge2nodes = {e: set(edge2nodes(e)) for e in mesh.init(tdim-1)}
+    
+    edge_is_smooth = {len(edge2nodes[e]) == 2 for e in edge2nodes}
 
-    return find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
+    return find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
 
 
-def find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth):
+def find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth):
     '''
     Let there be a graph with nodes connected by edges. A smooth manifold 
     is a collection of nodes connected together by smooth edges.
 
     INPUT:
     nodes = set([int])
-    node2edges = int -> set([int])
-    edge2nodes = int -> set([int])
-    edge_is_smooth = int -> bool
+    node2edges = dict: int -> set([int])
+    edge2nodes = dict int -> set([int])
+    edge_is_smooth = dict int -> bool
 
     OUTPUT:
     list of (set(nodes), set(edges) that are boundary)
@@ -65,7 +67,7 @@ def find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth):
     while starts:
         node = starts.pop()
         # Grow the manifold from node (only adding from nodes)
-        manifold = manifold_from(node, nodes, node2edges, edge2nodes, terminals)
+        manifold = manifold_from(node, node2edges, edge2nodes, terminals)
         # Burn bridges every node is part of only one manifold
         starts.difference_update(manifold.nodes)
 
@@ -73,7 +75,7 @@ def find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth):
     return manifolds
 
 
-def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
+def manifold_from(node, node2edges, edge2nodes, terminals):
     '''
     Grow the manifold from node using nodes. Manifold is bounded by a 
     subset of terminal edges
@@ -98,7 +100,7 @@ def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
         next_e = next_edges.pop()
         
         # Nodes connected to it which are new
-        connected_nodes = edge2nodes(next_e) & nodes - manifold
+        connected_nodes = edge2nodes(next_e) - manifold
         if not connected_nodes:
             continue
         # At most 1
@@ -115,3 +117,8 @@ def manifold_from(node, nodes, node2edges, edge2nodes, terminals):
         next_edges.update(new_edges)
 
     return Manifold(manifold, manifold_bdry)
+
+# --------------------------------------------------------------------
+
+if __name__ == '__main__':
+    
