@@ -254,19 +254,50 @@ def test_hierarchy_nest():
 
 if __name__ == '__main__':
 
-    test_branch_find()
-    test_segments_find()
+    if False:
+        test_branch_find()
+        test_segments_find()
     
-    test_c_uniform()
-    test_c_topological()
-    test_c_iterative()
+        test_c_uniform()
+        test_c_topological()
+        test_c_iterative()
 
-    test_mesh_stitch()
+        test_mesh_stitch()
 
-    test_coarsen_fail()    
-    test_coarsen()
+        test_coarsen_fail()    
+        test_coarsen()
 
-    test_hierarchy()
-    test_hierarchy_short()
+        test_hierarchy()
+        test_hierarchy_short()
+        
+        test_hierarchy_nest()
 
-    test_hierarchy_nest()
+
+    from dolfin import Timer
+    import numpy as np
+
+    size, time = [], []
+    for n in (8, 16, 32, 64, 128, 256, 1024, 2048):
+        f = OE_shape(n)
+        mesh = EmbeddedMesh(f, 1)
+
+        t = Timer('foo')
+        branches = find_branches(mesh)
+        dt = t.stop()
+
+        print dt
+
+        size.append(mesh.num_cells())
+        time.append(dt)
+
+    size = np.array(size)
+    time = np.array(time)
+    print np.polyfit(np.log(size), np.log(time), 1)
+
+    import matplotlib.pyplot as plt
+
+    plt.figure()
+    plt.loglog(size, time)
+    plt.show()
+
+

@@ -1,5 +1,5 @@
 from collections import namedtuple
-
+from dolfin import Timer
 
 Manifold = namedtuple('manifold', ['nodes', 'boundary'])
 
@@ -88,6 +88,8 @@ def manifold_from(node, nodes, node2edges, edge2nodes, edge_is_smooth):
         
         # Nodes connected to it which are new
         connected_nodes = edge2nodes(next_e) & nodes - manifold
+        #connected_nodes = [n for n in connected_nodes if n in nodes]
+
         if not connected_nodes:
             continue
         # At most 1

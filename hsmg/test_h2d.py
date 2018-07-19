@@ -115,10 +115,10 @@ def test_bdry_find_bdry():
         f = domain(n=4)
         mesh = EmbeddedMesh(f, 1)
         # We have only rectangles
-        assert all(len(plane_boundary(p, mesh)) == 5
-                   for m in smooth_manifolds(mesh)
-                   for p in break_to_planes(m, mesh)
-        )
+        print [plane_boundary(p, mesh)
+               for m in smooth_manifolds(mesh)
+               for p in break_to_planes(m, mesh)
+        ]
 
     return True
 
@@ -172,43 +172,45 @@ def test_hierarchy():
 
 # -------------------------------------------------------------------
 
-test_manifold_find(4)
-test_manifold_find(6)
+
+
+
+# test_manifold_find(4)
+# test_manifold_find(6)
 
 # test_plane_find(4)
 # test_plane_find(8)
 
-# test_bdry_find_edges()
-# test_bdry_find_bdry()
+test_bdry_find_edges()
+test_bdry_find_bdry()
 
 # test_coarsening()
 # test_not_coarsening()
 
 # test_hierarchy()
 
-from dolfin import Timer
+# from dolfin import Timer
 
-ns = []
-times = []
-for n in (2, 4, 8, 16, 32, 64):
-    f = Plate(n)
-    mesh = EmbeddedMesh(f, 1)
-    ns.append((mesh.num_cells(), mesh.num_vertices()))
-    
-    t = Timer('fpp')
-    smooth_manifolds(mesh)
-    times.append(t.stop())
-    print times[-1]
+# ns = []
+# times = []
+# for n in (2, 4, 8, 16, 32, 64):
+#     f = Cube(n)
+#     mesh = EmbeddedMesh(f, 1)
+#     ns.append((mesh.num_cells(), mesh.num_vertices()))
+#     print '>>>'
+#     t = Timer('fpp')
+#     smooth_manifolds(mesh)
+#     times.append(t.stop())
+#     print mesh.num_cells(), times[-1]
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
-n, v = map(np.array, list(zip(*ns)))
+# n, v = map(np.array, list(zip(*ns)))
 
-print 'n complex', np.polyfit(np.log(n), np.log(times), deg=1)[0]
-print 'v complex', np.polyfit(np.log(v), np.log(times), deg=1)[0]
+# print 'n complex', np.polyfit(np.log(n), np.log(times), deg=1)[0]
+# print 'v complex', np.polyfit(np.log(v), np.log(times), deg=1)[0]
 
-plt.figure()
-plt.loglog(n, times, label='n')
-plt.loglog(v, times, label='v')
-plt.legend(loc='best')
-plt.show()
+# plt.figure()
+# plt.loglog(n, times, 'rx-', label='n')
+# plt.legend(loc='best')
+# plt.show()
