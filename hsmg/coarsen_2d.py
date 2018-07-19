@@ -1,10 +1,11 @@
 from dolfin import Cell, Mesh, MeshFunction
 
-from itertools import dropwhile, chain
-from collections import namedtuple
+from collections import namedtuple, defaultdict
+from itertools import dropwhile, chain, repeat
 from mesh_write import make_mesh
 import subprocess, os
 import numpy as np
+import operator
 
 
 from coarsen_common import smooth_manifolds, find_smooth_manifolds, Manifold
@@ -208,29 +209,34 @@ def plane_boundary(manifold, mesh, TOL=1E-13):
     '''
     mesh.init(1)
     mesh.init(1, 0)
-    mesh.init(0, 1)
 
     # Mappings for the general algorithm
     nodes = manifold.boundary  # Mesh edges, edges in the graph are vertices
-    node2edges = lambda n, n2e=mesh.topology()(1, 0): set(n2e(n))
-    edge2nodes = lambda e, e2n=mesh.topology()(0, 1): set(e2n(e))
+    
+    node2edges = mesh.topology()(1, 0)
+    node2edges = {n: set(node2edges(n)) for n in nodes}
+    # Invert
+    edge2nodes = defaultdict(set)
+    for node, edges in node2edges.iteritems():
+        for e in edges:
+            edge2nodes[e].add(node)
 
     x = mesh.coordinates()
-    tangents = {n: np.diff(x[list(node2edges(n))], axis=0).flatten() for n in range(mesh.num_entities(1))}
-    for node in tangents:
-        tangents[node] /= np.linalg.norm(tangents[node])
+    tangents = {n: np.diff(x[list(edges)], axis=0).flatten()
+                for n, edges in node2edges.iteritems()}
+    # Normalize
+    for tau in tangents.itervalues():
+        tau /= np.linalg.norm(tau)
 
-    def edge_is_smooth(e, nodes=nodes, e2n=edge2nodes, tangents=tangents):
-        # Vertex can be connected to many edges of the mesh. Only want
-        # those edges that form the boundary
-        edges = edge2nodes(e) & nodes  
+    edge_is_smooth = dict(zip(edge2nodes, repeat(False)))
+    for vertex, edges in edge2nodes.iteritems():
         if len(edges) != 2:
-            return False
-        
+            continue
+
         e0, e1 = edges
-        return abs(abs(tangents[e0].dot(tangents[e1])) - 1) < TOL
+        edge_is_smooth[vertex] = abs(abs(tangents[e0].dot(tangents[e1])) - 1) < TOL
         
-    segments = find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
+    segments = find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
     # Only work with .boundary(i.e. physical vertices) from now on
     segments = [list(segment.boundary) for segment in segments]
     # Let's orient it - it must be a closed loop
@@ -254,7 +260,7 @@ def plane_boundary(manifold, mesh, TOL=1E-13):
     
 def break_to_planes(manifold, mesh, TOL=1E-13):
     '''
-    Break manifold intro planes by smoothness understood in the sense 
+    Break manifold into planes by smoothness understood in the sense 
     that the normal of 2 cells does not change orientation
 
     INPUT:
@@ -268,86 +274,98 @@ def break_to_planes(manifold, mesh, TOL=1E-13):
 
     mesh.init(tdim-1)
     mesh.init(tdim, tdim-1)
-    mesh.init(tdim-1, tdim)
 
     # Mappings for the general algorithm
     nodes = manifold.nodes
-    node2edges = lambda n, n2e=mesh.topology()(tdim, tdim-1): set(n2e(n))
-    edge2nodes = lambda e, e2n=mesh.topology()(tdim-1, tdim): set(e2n(e))
+    # All cells
+    node2edges = mesh.topology()(tdim, tdim-1)
+    # The relevant here
+    node2edges = {n: set(node2edges(n)) for n in nodes}
 
-    normals = {c: Cell(mesh, c).cell_normal() for c in range(mesh.num_cells())}
+    # The inverse map should only return to nodes
+    edge2nodes = defaultdict(set)
+    status = False
+    for node, edges in node2edges.iteritems():
+        for e in edges:
+            edge2nodes[e].add(node)
 
-    def edge_is_smooth(e, e2n=edge2nodes, normals=normals):
-        cells = edge2nodes(e)
-        # No point to filter cells here as more than 2 cells indicates manifold
-        # bdry which is also a plane boundary
-        if len(cells) != 2:  
-            return False
+    normals = {c: Cell(mesh, c).cell_normal() for c in nodes}
+
+    edge_is_smooth = dict(zip(edge2nodes, repeat(False)))
+    for edge, cells in edge2nodes.iteritems():
+        if len(cells) != 2:
+            continue
         
         c0, c1 = cells
-        return abs(abs(normals[c0].dot(normals[c1])) - 1) < TOL
-        
-    return find_smooth_manifolds(nodes, node2edges, edge2nodes, edge_is_smooth)
+        is_smooth = abs(abs(normals[c0].dot(normals[c1])) - 1) < TOL
+        edge_is_smooth[edge] = is_smooth
+
+    return find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
 
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
     from dolfin import (UnitCubeMesh, BoundaryMesh, MeshFunction, CompiledSubDomain,
-                        DomainBoundary, File, cells)
+                        DomainBoundary, File, cells, Timer)
     from xii import EmbeddedMesh
     from itertools import chain
 
-    mesh = UnitCubeMesh(16, 16, 16)
+    ncells, times = [], []
+    for n in (2, 4, 8, 16, 32, 64):
+        mesh = UnitCubeMesh(n, n, n)
 
 
-    f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    DomainBoundary().mark(f, 1)
-    #CompiledSubDomain('near(x[0], 0.)').mark(f, 1)
-    #CompiledSubDomain('near(x[1], 1.)').mark(f, 1)
+        f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        DomainBoundary().mark(f, 1)
+        #CompiledSubDomain('near(x[0], 0.)').mark(f, 1)
+        #CompiledSubDomain('near(x[1], 1.)').mark(f, 1)
 
-    # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
-    # CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
-    # CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
-    # CompiledSubDomain('near(1-x[0], x[1])').mark(f, 1)
+        # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
+        # CompiledSubDomain('near(x[1], 0.0)').mark(f, 1)
+        # CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
+        # CompiledSubDomain('near(1-x[0], x[1])').mark(f, 1)
 
-    # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
-    # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
-    # CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
-    #CompiledSubDomain('near(x[0], 1.)').mark(f, 1)
+        # CompiledSubDomain('near(x[0], 0)').mark(f, 1)
+        # CompiledSubDomain('near(x[1], 0)').mark(f, 1)
+        CompiledSubDomain('near(x[0], 0.5)').mark(f, 1)
+        #CompiledSubDomain('near(x[0], 1.)').mark(f, 1)
 
+        mesh = EmbeddedMesh(f, 1)
 
-    mesh = EmbeddedMesh(f, 1)
+        # manifolds = smooth_manifolds(mesh)
 
-    # manifolds = smooth_manifolds(mesh)
+        # f = MeshFunction('size_t', mesh, 2, 0)
+        # values = f.array()
+        # for c, manifold in enumerate(manifolds, 1):
+        #     values[list(manifold.nodes)] = c
 
-    # f = MeshFunction('size_t', mesh, 2, 0)
-    # values = f.array()
-    # for c, manifold in enumerate(manifolds, 1):
-    #     print manifold
-    #     values[list(manifold.nodes)] = c
+        # File('gmsh_2d.pvd') << f
 
-    # File('gmsh_2d.pvd') << f
+        # # f = MeshFunction('size_t', mesh, 2, 0)
+        # # values = f.array()
 
-    # f = MeshFunction('size_t', mesh, 2, 0)
-    # values = f.array()
+        # color = 0
+        # for manifold in manifolds:
+        #     # print 'manif', manifold
+        #     for plane in break_to_planes(manifold, mesh):
+        #         color += 1
+        #         values[list(plane.nodes)] = color
 
-    # color = 0
-    # for manifold in manifolds:
-    #     print 'manif', manifold
-    #     for plane in break_to_planes(manifold, mesh):
-    #         color += 1
-    #         values[list(plane.nodes)] = color
-    #         print '\tplane', plane
-    #         plane_boundary(plane, mesh)
-    # File('gmsh_2d_planes.pvd') << f
+        #         plane_boundary(plane, mesh)
+        # File('gmsh_2d_planes.pvd') << f
 
-    # geo_file_data(mesh)
+        # geo_file_data(mesh)
 
-    # geo_file(mesh, path='test.geo')
+        # geo_file(mesh, path='test.geo')
 
-    coarsener = GmshCoarsener('test.geo')
-    _, success, after =coarsener.coarsen(mesh)
+        coarsener = GmshCoarsener('test.geo')
+                
+        t = Timer('dd')
+        _, success, after = coarsener.coarsen(mesh)
+        ncells.append(mesh.num_cells())
+        times.append(t.stop())
 
-    print success
-    File('after.pvd') << after
-
+        #print success
+        File('after.pvd') << after
+    print ncells
+    print times

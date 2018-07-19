@@ -24,12 +24,12 @@ def smooth_manifolds(mesh):
 
     # Mappings for the general algorithm
     node2edges = mesh.topology()(tdim, tdim-1)
-    node2edges = {n: set(node2edges(n)) for n in mesh.init(tdim)}
+    node2edges = {n: set(node2edges(n)) for n in xrange(mesh.init(tdim))}
     
     edge2nodes = mesh.topology()(tdim-1, tdim)
-    edge2nodes = {e: set(edge2nodes(e)) for e in mesh.init(tdim-1)}
+    edge2nodes = {e: set(edge2nodes(e)) for e in xrange(mesh.init(tdim-1))}
     
-    edge_is_smooth = {len(edge2nodes[e]) == 2 for e in edge2nodes}
+    edge_is_smooth = {e: len(edge2nodes[e]) == 2 for e in edge2nodes}
 
     return find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
 
@@ -51,9 +51,9 @@ def find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth):
     starts, terminals = set(), set()
     # Let's find the possible starts - the idea being that we want to build
     # from the non-smoothe edges
-    for node in nodes:
-        for edge in node2edges(node):
-            if not edge_is_smooth(edge):
+    for node, edges in node2edges.iteritems():
+        for edge in edges:
+            if not edge_is_smooth[edge]:
                 starts.add(node)
                 terminals.add(edge)
 
@@ -90,7 +90,7 @@ def manifold_from(node, node2edges, edge2nodes, terminals):
     Manifold
     '''
     # We connect nodes with others over non-terminal edges
-    next_edges = node2edges(node)
+    next_edges = set(node2edges[node])
     manifold_bdry = next_edges & terminals
     next_edges.difference_update(manifold_bdry)
 
@@ -99,7 +99,7 @@ def manifold_from(node, node2edges, edge2nodes, terminals):
         next_e = next_edges.pop()
         
         # Nodes connected to it which are new
-        connected_nodes = edge2nodes(next_e) - manifold
+        connected_nodes = edge2nodes[next_e] - manifold
         if not connected_nodes:
             continue
         # At most 1
@@ -107,7 +107,7 @@ def manifold_from(node, node2edges, edge2nodes, terminals):
         manifold.add(node)
         
         # The connected node may contribute new edges
-        new_edges = node2edges(node) - set((next_e, ))  # Don't go back
+        new_edges = node2edges[node] - set((next_e, ))  # Don't go back
         # We're really interested only in those that can be links
         manifold_bdry_ = new_edges & terminals
         new_edges.difference_update(manifold_bdry_)
@@ -120,4 +120,4 @@ def manifold_from(node, node2edges, edge2nodes, terminals):
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
-    
+    pass
