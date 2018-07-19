@@ -149,7 +149,7 @@ def test_mesh_stitch():
     b1 = [[x[0], x[7], x[6]], [x[6], x[5], x[4]]]
     b2 = [[x[0], x[8], x[4]]]
 
-    cmesh, _ = mesh_from_segments([b0, b1, b2], 1E-13)
+    cmesh, _ = mesh_from_segments(np.array(b0+b1+b2), 1E-13)
 
     mesh = UnitSquareMesh(2, 2)
     f = MeshFunction('size_t', mesh, 1, 0)
@@ -195,17 +195,19 @@ def test_coarsen_fail():
 
     
 def test_coarsen():
-    mesh = UnitSquareMesh(16, 16)
+    mesh = UnitSquareMesh(4, 4)
     f = MeshFunction('size_t', mesh, 1, 0)
     DomainBoundary().mark(f, 1)
     CompiledSubDomain('near(x[0], x[1])').mark(f, 1)
     mesh = EmbeddedMesh(f, 1)
 
     nmesh, coarsened, color_f = CurveCoarsenerIterative.coarsen(mesh)
+    from dolfin import File
+    File('ffff.pvd') << color_f
     # Succeeded
     assert coarsened
-    # Preserved nbranches
-    assert set(color_f.array()) == set((1, 2, 3)), set(color_f.array())
+    # Preserved n segments
+    assert set(color_f.array()) == set(range(1, 6)), set(color_f.array())
     # We have the same area
     area = sum(c.volume() for c in cells(mesh))
     narea = sum(c.volume() for c in cells(nmesh))
@@ -264,5 +266,3 @@ test_coarsen()
 
 test_hierarchy()
 test_hierarchy_short()
-
-test_hierarchy_nest()

@@ -50,7 +50,7 @@ def performance_2d():
     
     ncells = []
     times = []
-    for n in (2, 4, 8, 16, 32):#, 64):
+    for n in (2, 4, 8, 16, 32, 64):
         mesh = domain(n)
         ncells.append(mesh.num_cells())
 
@@ -88,17 +88,20 @@ if __name__ == '__main__':
     # ncells, times = performance_manifolds(square,
     #                                       [2**i for i in range(5, 11)])
 
-    ncells, times = performance_manifolds(cube,
-                                          [2**i for i in range(2, 7)])
+    # ncells, times = performance_manifolds(cube,
+    #                                       [2**i for i in range(2, 7)])
 
+    ncells, times = performance_1d()
 
-    ncells = np.array(ncells)
-    print 'O(%.2f)' % np.polyfit(np.log(ncells), np.log(times), deg=1)[0]
+    ncells = np.array(ncells, dtype=float)
+    a, b = np.polyfit(np.log(ncells), np.log(times), deg=1)
+    print 'O(%.2f)' % a
 
+    print a,b, ncells**a + b
+    
     plt.figure()
-    plt.loglog(ncells, times, 'rx-', label='n')
-    plt.loglog(ncells, (times[0]/ncells[0])*ncells, 'b:')
+    plt.loglog(ncells, times, 'rx-', label='measured')
+    plt.loglog(ncells, (times[0]/ncells[0])*ncells, 'b-', label='linear')
+    plt.plot(ncells, ncells**a, 'g-', label='fit O(%.2f)' % a)
     plt.legend(loc='best')
     plt.show()
-
-    # File('color_f.pvd') << f

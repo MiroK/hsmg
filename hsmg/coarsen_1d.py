@@ -1,41 +1,47 @@
 from itertools import ifilter, repeat, dropwhile, takewhile
+from coarsen_common import smooth_manifolds, find_smooth_manifolds
+from collections import defaultdict
 from mesh_write import make_mesh
 import numpy as np
 
 from dolfin import MeshFunction
 
 
-def mesh_from_segments(branch_segments, TOL):
+def mesh_from_segments(segments, TOL):
     '''Create mesh given branches which contain segments'''
     # Compute first the collision between branches as they first and last
     # nodes contain the only shared nodes
-    vertices = np.array([branch_segments[0][0][0]])
-    # Get global vertex numbers
-    terminal_numbers = []
-    for i, bi in enumerate(branch_segments):
-        branch_terminals = bi[0][0], bi[-1][-1]
+    vertices = np.array([segments[0][0]])
+    terminal_indices = []
 
-        tm = ()
-        for t in branch_terminals:
+    for seg in segments:
+        seg_terminal_indices = []
+        for x in seg[[0, -1]]:
             # Is it in?
-            dist = np.sqrt(np.sum((vertices - t)**2, 1))
+            dist = np.sqrt(np.sum((vertices - x)**2, 1))
             i = np.argmin(dist)
             # It is not
             if dist[i] > TOL:
                 i = len(vertices)  # We add and this is the index
-                vertices = np.row_stack([vertices, t])
-            tm = tm + (i, )
-        terminal_numbers.append(tm)
-                
-    # With this info each branch can extend the vertices and add cells
-    # independently
-    vertices, cells = list(vertices), []
+                vertices = np.row_stack([vertices, x])
+            seg_terminal_indices.append(i)
+        terminal_indices.append(seg_terminal_indices)
+
+    # Indepently
+    cells = []
     color_offsets = [0]
-    for tm, branch in zip(terminal_numbers, branch_segments):
-        add_branch(branch, tm, vertices, cells)  # Bang method
-        # We add cells by branch (continuous chunks) so this way we keep
-        # track of color
-        color_offsets.append(len(cells))
+    for (gfirst, glast), seg in zip(terminal_indices, segments):
+        # Numbering for middle guys
+        n = len(vertices)
+        new_vertices = seg[1:-1]
+        index_map = [gfirst] + range(n, n + len(new_vertices)) + [glast]
+        # Cells are just conseq. pairs
+        new_cells = zip(index_map[:-1], index_map[1:])
+        cells.extend(new_cells)
+        # Don't forget the vertices
+        vertices = np.row_stack([vertices, new_vertices])
+        # and cells
+        color_offsets.append(color_offsets[-1] + len(new_cells))
 
     vertices = np.array(vertices, dtype=float)
     cells = np.array(cells, dtype='uintp')
@@ -71,159 +77,74 @@ def add_branch(segments, terminal_indices, vertices, cells):
 
     
 def find_segments(mesh, TOL):
-    '''
-    Produce representation of straight segments of mesh of the form 
-    [[v0, ..., vn],  [vn, ...., vm]] with v_i the vertex indices
-    '''
-    # The idea is that any branch in the mesh must for such consist of
-    # at least one straight segment. So we make branches which can be walked
-    # and the walk broken once the orientation changes. This takes advantage
-    # of existence and simle computation of Eulerian paths in the graph
-    # and no intermediate mesh needs to be created until the final (cf 2d.)
+    '''FIXME'''
+    # A list of manifolds
     branches = find_branches(mesh)
-    
-    return [break_to_segments(branch, mesh, TOL) for branch in branches]
 
-
-def break_to_segments(branch, mesh, TOL):
-    '''
-    We have a linked list of pairs which we break upon changes in 
-    tangent orientation.
-    '''
-    # So now geometrical (previously topologial) smoothness matters
-    x = mesh.coordinates()
-    
-    if len(branch) == 1: return branch
-    
-    # If the branch comes from one loop then the starting point was
-    # chosen randomly. However, the algorithm below assumes that the
-    # branch start is also a segment start. So for loops we rearange.
-    def tangent(edge, x=mesh.coordinates()):
-        t = x[edge[0]] - x[edge[1]]
-        return t/np.linalg.norm(t)
-    
-    tan_change = lambda t1, t2: abs(abs(np.dot(t1, t2))-1) > TOL
-    
-    efirst, elast = branch[0], branch[-1]
-    vfirst, vlast = efirst[0], elast[-1]
-    # A loop
-    if vfirst == vlast:
-
-        edge0 = branch[0]
-        t = tangent(edge0)
-        # Find the first change in tangent
-        i = next(dropwhile(lambda i: not tan_change(t, tangent(branch[i])), range(len(branch))))
-        # Ensure that we start from the kink
-        branch = branch[i:] + branch[:i]
+    mesh.init(1, 0)
+    c2v = mesh.topology()(1, 0)
     
     segments = []
+    for branch in branches:
 
-    index = 0
-    while index < len(branch):
-        edge = branch[index]
-        t1 = tangent(edge)
-        index += 1
-
-        segment = edge
-        link = edge[1]
-        # We build the segment until there is change 
-        for v0, v1 in  takewhile(lambda e: not tan_change(t1, tangent(e)), branch[index:]):
-            assert v0 == link   # Link prperty between edges in branch
-            link = v1
-            segment.append(link)
-            index += 1
-        segments.append(segment)
+        branch_segments = []
+        for seg in break_to_segments(branch.nodes, mesh, TOL):
+            # Want it as ordered vertices
+            vfirst, vlast = seg.boundary
+            # Cell vertex connectivity
+            cell2vertices = {c: c2v(c) for c in seg.nodes}
+            segment = [vfirst]
+            while vfirst != vlast:
+                # Give me the first cell connected to it
+                cell = next(dropwhile(lambda c, v=vfirst: v not in cell2vertices[c], cell2vertices))
+                # Get its vertices and forget
+                v0, v1 = cell2vertices.pop(cell)
+                # Which to link
+                vfirst = v0 if v1 == vfirst else v1
+                segment.append(vfirst)
+            branch_segments.append(segment)
+        segments.append(branch_segments)
 
     return segments
+                
+            
+def break_to_segments(branch, mesh, TOL):
+    '''FIXME'''
+    mesh.init(1)
+    mesh.init(1, 0)
+
+    # Mappings for the general algorithm
+    nodes = branch
+
+    node2edges = mesh.topology()(1, 0)
+    node2edges = {n: set(node2edges(n)) for n in nodes}
+    # Invert
+    edge2nodes = defaultdict(set)
+    for node, edges in node2edges.iteritems():
+        for e in edges:
+            edge2nodes[e].add(node)
+
+    x = mesh.coordinates()
+    tangents = {n: np.diff(x[list(edges)], axis=0).flatten()
+                for n, edges in node2edges.iteritems()}
+    # Normalize
+    for tau in tangents.itervalues():
+        tau /= np.linalg.norm(tau)
+
+    edge_is_smooth = dict(zip(edge2nodes, repeat(False)))
+    for vertex, edges in edge2nodes.iteritems():
+        if len(edges) != 2:
+            continue
+
+        e0, e1 = edges
+        edge_is_smooth[vertex] = abs(abs(tangents[e0].dot(tangents[e1])) - 1) < TOL
+        
+    return find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
 
 
 def find_branches(mesh):
-    '''
-    A branch is a list of tuples (that are vertex indices) representing 
-    edges of the mesh such that the 
-    i) if first and last edge are different then both have a vertex which 
-    is either connected to one edge or to more than two edges
-    ii) a loop
-    '''
-    # NOTE: I say that the manifold is smooth at facet if it is connected
-    # to at most 2 cells.
-    
-    # The relevant connectivity
-    # Precompute connectivity
-    mesh.init(0, 1)
-    e2v = mesh.topology()(1, 0)
-    v2e = mesh.topology()(0, 1)
-
-    starts = []  # Pair of edge and vertex to avoid
-    # Let's find the start edges
-    for v in range(mesh.num_vertices()):
-        # Bdry point
-        ne = len(v2e(v))
-        if ne == 1 or ne > 2:
-            starts.extend(zip(v2e(v), repeat(v)))
-            
-    # We might have a single loop, then the start does not matter
-    if len(starts) == 0:
-        # First edge, and one of its vertices
-        starts.append((0, e2v(0)[0]))
-
-    # Want to represent edge connectivity by pop-able strucure
-    e2v = {e: list(e2v(e)) for e in range(mesh.num_cells())}
-    # Vertices for termination checking
-    terminals = set(p[1] for p in starts)  # Unique
-
-    branches = []
-    while starts:
-        edge, vertex = starts.pop()
-        # We have edge how do we link to others? Avoid vertex
-        branch_coded = branch_from(edge, vertex, e2v, v2e, terminals)
-        # Branch comes back as list of edge indices and a flag indicating
-        # orientation
-        # Decode branch and update data structures
-        branch = []
-        for flip, index in branch_coded:
-            edge = e2v.pop(index)
-            if flip:
-                branch.append(edge[::-1])
-            else:
-                branch.append(edge)
-
-        # Pop start_edges! so that we don't walk back etc
-        try:
-            i = next(dropwhile(lambda i: starts[i][0] != index,
-                               range(len(starts))))
-            del starts[i]
-        except StopIteration:
-            pass
-        
-        branches.append(branch)
-
-    return branches
-
-
-def branch_from(edge, avoid_vertex, e2v, v2e, terminals):
-    '''List of edges until terminal is encountered'''
-    v0, v1 = e2v[edge]
-
-    flip = v1 == avoid_vertex
-    next_v = v0 if flip else v1
-    
-    flip_branch = [(flip, edge)]
-    while next_v not in terminals:
-        # In a smooth case we have 2 connected cells and one is the previous
-        # cell
-        try:
-            edge, = [e for e in v2e(next_v) if e != edge]
-        except ValueError:
-            # We've reached the boundary (or bifurcation)
-            break
-
-        v0, v1 = e2v[edge]
-        flip = v1 == next_v
-        
-        next_v = v0 if flip else v1
-        flip_branch.append((flip, edge))
-    return flip_branch
+    '''FIXME'''
+    return smooth_manifolds(mesh)
 
 # Some coarsening functions        
 
@@ -292,7 +213,6 @@ def coarsen_1d_mesh(mesh, coarsen_segment, TOL=1E-13):
     # Each branch consists is a list of segments. We keep this grouping
     coarse_segments, success = [], True
     for branch in branch_segments:
-        coarse_branch = []
         # Go over segments in this branch
         for s in branch:
             segment = x[s]
@@ -300,16 +220,14 @@ def coarsen_1d_mesh(mesh, coarsen_segment, TOL=1E-13):
             csegment, coarsened = coarsen_segment(segment)
             # Each segment must be coarsed for the final mesh
             if coarsened:
-                coarse_branch.append(csegment)
+                coarse_segments.append(csegment)
             else:
-                coarse_branch.append(segment)  # The same
+                coarse_segments.append(segment)  # The same
             # Everybody needs to succeed
             success = success and coarsened
-        # So the coarse branch is also collection of segments
-        coarse_segments.append(coarse_branch)
     # For debugging purposes with use cell function marking branches
     cmesh, color_f = mesh_from_segments(coarse_segments, TOL)
-
+    
     return cmesh, success, color_f
 
 
@@ -321,7 +239,7 @@ class CurveCoarsener(object):
         return coarsen_1d_mesh(mesh, self.method)
 
     
-CurveCoarsenerIterative = CurveCoarsener(coarsen_segment_iterative)
+CurveCoarsenerIterative = CurveCoarsener(coarsen_segment_topological)
 
 # -------------------------------------------------------------------
 

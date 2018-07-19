@@ -9,6 +9,7 @@ import operator
 
 
 from coarsen_common import smooth_manifolds, find_smooth_manifolds, Manifold
+from coarsen_1d import break_to_segments
 
 GeoData = namedtuple('geodata', ['points', 'lines', 'polygons'])
 
@@ -207,36 +208,7 @@ def plane_boundary(manifold, mesh, TOL=1E-13):
     OUPUT:
     loop = [int] (mesh vertex indices)
     '''
-    mesh.init(1)
-    mesh.init(1, 0)
-
-    # Mappings for the general algorithm
-    nodes = manifold.boundary  # Mesh edges, edges in the graph are vertices
-    
-    node2edges = mesh.topology()(1, 0)
-    node2edges = {n: set(node2edges(n)) for n in nodes}
-    # Invert
-    edge2nodes = defaultdict(set)
-    for node, edges in node2edges.iteritems():
-        for e in edges:
-            edge2nodes[e].add(node)
-
-    x = mesh.coordinates()
-    tangents = {n: np.diff(x[list(edges)], axis=0).flatten()
-                for n, edges in node2edges.iteritems()}
-    # Normalize
-    for tau in tangents.itervalues():
-        tau /= np.linalg.norm(tau)
-
-    edge_is_smooth = dict(zip(edge2nodes, repeat(False)))
-    for vertex, edges in edge2nodes.iteritems():
-        if len(edges) != 2:
-            continue
-
-        e0, e1 = edges
-        edge_is_smooth[vertex] = abs(abs(tangents[e0].dot(tangents[e1])) - 1) < TOL
-        
-    segments = find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth)
+    segments = break_to_segments(manifold.boundary, mesh, TOL)
     # Only work with .boundary(i.e. physical vertices) from now on
     segments = [list(segment.boundary) for segment in segments]
     # Let's orient it - it must be a closed loop
