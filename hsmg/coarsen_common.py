@@ -40,10 +40,9 @@ def find_smooth_manifolds(node2edges, edge2nodes, edge_is_smooth):
     is a collection of nodes connected together by smooth edges.
 
     INPUT:
-    nodes = set([int])
-    node2edges = dict: int -> set([int])
-    edge2nodes = dict int -> set([int])
-    edge_is_smooth = dict int -> bool
+    node2edges = dict: int -> set([int])  # Keys are only possible nodes
+    edge2nodes = dict int -> set([int])   # Values must be subset of nodes
+    edge_is_smooth = dict int -> bool     # Cover possible edges
 
     OUTPUT:
     list of (set(nodes), set(edges) that are boundary)
