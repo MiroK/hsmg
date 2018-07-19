@@ -164,41 +164,16 @@ def test_hierarchy():
 
 # -------------------------------------------------------------------
 
-# test_manifold_find(4)
-# test_manifold_find(6)
+test_manifold_find(4)
+test_manifold_find(6)
 
-# test_plane_find(4)
-# test_plane_find(8)
+test_plane_find(4)
+test_plane_find(8)
 
-# test_bdry_find_edges()
-# test_bdry_find_bdry()
+test_bdry_find_edges()
+test_bdry_find_bdry()
 
-# test_coarsening()
-# test_not_coarsening()
+test_coarsening()
+test_not_coarsening()
 
-# test_hierarchy()
-
-from dolfin import Timer
-
-ns = []
-times = []
-for n in (2, 4, 8, 16, 32, 64):
-    f = Cube(n)
-    mesh = EmbeddedMesh(f, 1)
-    ns.append(mesh.num_cells())
-    print '>>>'
-    t = Timer('fpp')
-    smooth_manifolds(mesh)
-    times.append(t.stop())
-    print mesh.num_cells(), times[-1]
-
-import matplotlib.pyplot as plt
-
-ns = np.array(ns)
-
-print 'n complex', np.polyfit(np.log(ns), np.log(times), deg=1)[0]
-
-plt.figure()
-plt.loglog(ns, times, 'rx-', label='n')
-plt.legend(loc='best')
-plt.show()
+test_hierarchy()

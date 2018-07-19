@@ -314,7 +314,6 @@ if __name__ == '__main__':
     for n in (2, 4, 8, 16, 32, 64):
         mesh = UnitCubeMesh(n, n, n)
 
-
         f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         DomainBoundary().mark(f, 1)
         #CompiledSubDomain('near(x[0], 0.)').mark(f, 1)

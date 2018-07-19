@@ -248,25 +248,21 @@ def test_hierarchy_nest():
 
     assert is_nested(hierarchy)
 
-    
 # --------------------------------------------------------------------
 
-
-if __name__ == '__main__':
-
-    test_branch_find()
-    test_segments_find()
+test_branch_find()
+test_segments_find()
     
-    test_c_uniform()
-    test_c_topological()
-    test_c_iterative()
+test_c_uniform()
+test_c_topological()
+test_c_iterative()
 
-    test_mesh_stitch()
+test_mesh_stitch()
 
-    test_coarsen_fail()    
-    test_coarsen()
+test_coarsen_fail()    
+test_coarsen()
 
-    test_hierarchy()
-    test_hierarchy_short()
+test_hierarchy()
+test_hierarchy_short()
 
-    test_hierarchy_nest()
+test_hierarchy_nest()
