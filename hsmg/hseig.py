@@ -8,7 +8,7 @@ from dolfin import *
 
 class InterpolationMatrix(block_base):
     '''
-    Given spd matrices A, M this matrix is (M*U)*Lambda^s(M*U)' where 
+    Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
     def __init__(self, A, M, s, tol=1E-10):
@@ -26,13 +26,15 @@ class InterpolationMatrix(block_base):
 
         self.s = s
 
-    def create_vec(self, dim):
+    def create_vec(self, dim=0):
         return self.A.create_vec(dim)
         
     def matvec(self, b):
+        '''Action on b vector'''
         if self.matrix is None:
             M = self.M.array()
             self.lmbda, self.U = eigh(self.A.array(), M)
+            assert all(self.lmbda > 0)  # pos def
             # Build the matrix representation
             W = M.dot(self.U)
             array = csr_matrix((W.dot(np.diag(self.lmbda**self.s))).dot(W.T))
@@ -58,11 +60,22 @@ class InterpolationMatrix(block_base):
             return PETScMatrix(A)
         # Fallback to cbc.block
         else:
+            assert power > 0
             return block_base.__pow__(self, power)
 
 
 def HsNorm(V, s, bcs=None):
-    '''Is based on powers of -Delta + u'''
+    '''
+    Interpolation matrix with A based on -Delta + I and M based on I.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = DirichletBC instance specifying boundary conditions
+
+    OUTPUT:
+      InterpolationMatrix
+    '''
     u, v = TrialFunction(V), TestFunction(V)
     m = inner(u, v)*dx
     
@@ -94,7 +107,17 @@ def HsNorm(V, s, bcs=None):
 
 
 def Hs0Norm(V, s, bcs):
-    '''Is based on powers of -Delta'''
+    '''
+    Interpolation matrix with A based on -Delta and M based on I.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = DirichletBC instance specifying boundary conditions
+
+    OUTPUT:
+      InterpolationMatrix
+    '''
     u, v = TrialFunction(V), TestFunction(V)
     m = inner(u, v)*dx
     
