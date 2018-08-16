@@ -97,7 +97,6 @@ class BPOperator(block_base):
 
         nsolves = 0
         iter_count = 0
-        print 'k', k, len(range(-M, N+1))
         for l in range(-M, N+1):
             nsolves += 1
             
@@ -118,8 +117,11 @@ class BPOperator(block_base):
         raise NotImplementedError
 
     
-class FHelmholtz(BPOperator):
-    '''BPOperator with L = -Delta + I; fractional Helmholtz'''
+class InvFHelmholtz(BPOperator):
+    '''
+    BPOperator with L = -Delta + I; fractional Helmholtz, i.e. compute 
+    the solution of L u = f for f given.
+    '''
     def __init__(self, V, s, bcs, solve_shifted_problem=None, compute_k=0.5):
         
         BPOperator.__init__(self, V, s, solve_shifted_problem, compute_k)
@@ -147,8 +149,11 @@ class FHelmholtz(BPOperator):
         return assemble_system(self.L + Constant(shift)*self.I, self.f, self.bcs)[0]
 
         
-class FLaplace(BPOperator):
-    '''BPOperator with L = -Delta, fractional Laplacian'''
+class InvFLaplace(BPOperator):
+    '''
+    BPOperator with L = -Delta, fractional Laplacian, i.e. compute the 
+    solution of L u = f for f given.
+    '''
     def __init__(self, V, s, bcs, solve_shifted_problem=None, compute_k=0.5):
         assert bcs is not None
         BPOperator.__init__(self, V, s, solve_shifted_problem, compute_k)

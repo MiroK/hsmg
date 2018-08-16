@@ -1,5 +1,5 @@
 from dolfin import *
-from hsmg.hsquad import FLaplace, FHelmholtz
+from hsmg.hsquad import InvFLaplace, InvFHelmholtz
 from hsmg.utils import from_np_array
 import numpy as np
 
@@ -24,7 +24,7 @@ class TestHsNorm(unittest.TestCase):
 
                 b = assemble(inner(TestFunction(V), f)*dx)
                 # Numeric
-                H = FHelmholtz(V, s, bcs=None, compute_k=0.5)
+                H = InvFHelmholtz(V, s, bcs=None, compute_k=0.5)
                 # NOTE: so the map is nodal to dual
                 uh = Function(V, H*b)
 
@@ -57,7 +57,7 @@ class TestHs0Norm(unittest.TestCase):
                 b = assemble(inner(TestFunction(V), f)*dx)
                 # Numeric
                 bcs = DirichletBC(V, Constant(0), 'on_boundary')
-                H = FLaplace(V, s, bcs, compute_k=0.5)
+                H = InvFLaplace(V, s, bcs, compute_k=0.5)
                 # NOTE: so the map is nodal to dual
                 uh = Function(V, H*b)
 
