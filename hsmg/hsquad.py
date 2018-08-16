@@ -1,95 +1,108 @@
-from dolfin import LinearOperator, PETScPreconditioner, PETScKrylovSolver
-from dolfin import SubDomain, CompiledSubDomain, between, Constant
-from dolfin import DirichletBC, inner, grad, dx, assemble_system
-from dolfin import CellSize, avg, dot, jump, dS, ds, zero
-from dolfin import TrialFunction, TestFunction, Function
-from dolfin import Vector, MPI, solve
-import dolfin as df
+from dolfin import *
 
 from block.object_pool import vec_pool
 from block.block_base import block_base
-from block.algebraic.petsc import Cholesky
 
-from math import sin, pi, sqrt, exp, ceil
-from types import FunctionType
+from math import ceil
 import numpy as np
 
 
-df.set_log_level(df.WARNING)
-
-
-class BP_Operator_Base(block_base):
+class BPOperator(block_base):
     '''
-    This is an interface for solvers of equations of the type L ^ s u = b.
-    Solution u is computed as u = L^{-s} b where action of L^{-s} is computed
-    from its integral representation. This requires solves of the shifted
-    problem (L + p*I) y = c.
+    Solver for equations of the type L ^ s u = b. Solution u is computed as 
+    u = L^{-s} b where action of L^{-s} is computed from using Bochner integral 
+    representation. The numerical integration requires solutions of shifted 
+    problems (L + p*I).
 
-    One must provide (p -> L + p*I), the solver for it and function which
-    controls the number of quadrature points
     '''
-    def __init__(self, s, V):
+    def __init__(self, V, s, solve_shifted_problem=None, compute_k=0.5):
         '''
-        I want to solve L^s x = b, where L is operator over V.
-        '''
-        # Cook up action based on s
-        if s > 0:
-            def action(self, b):
-                x, nsolves, niters = self.apply_negative_power(b, s)
-                self.nsolves += nsolves
-                self.niters += niters
+        Solve L^s x = b, where L is operator over V. 
 
-                return x
-        else:
-            # This is based on L^s = L^{s+1-1} = L^{(1+s)/2}*L^{-1}*L^{(1+s)/2}
-            def action(self, b):
-                # L
-                A = self.shifted_operator(0.)
-                # The first fraction apply
-                x0, nsolves, niters = self.apply_negative_power(b, 0.5*(1 + s))
-                self.nsolves += nsolves
-                self.niters += niters
-                
-                # L action
-                b1 = x0.copy()
-                A.mult(x0, b1)
-                # The second fraction apply
-                x, nsolves, niters = self.apply_negative_power(b1, 0.5*(1 + s))
-                self.nsolves += nsolves
-                self.niters += niters
-                
-                return x
-        self.action = action
-        
-        # This are really only for computing k
+        INPUT:
+          s = fractionality
+          V = function space
+          solve_shifted_problem = (A, x, b) -> (niters, solution of A*x = b)
+          compute_k = (fract, dim(V), hmin(mesh(V))) -> control for number of integration points
+                      small k is greater accuracy
+        '''
+        assert between(s, (-1, 1))
         self.V = V
+        # This are really only for computing k
         self.mesh_hmin = MPI.min(V.mesh().mpi_comm(), V.mesh().hmin())
         # Monitors
         self.nsolves, self.niters = 0, 0
+        # Fractionality for deciding action
+        self.s = s
+        # Specialization for L
+        
+        if solve_shifted_problem is None:
+            # Fall back to direct solve
+            self.solve_shifted_problem = lambda A, x, b: (solve(A, x, b), (1, x))[1]
+        else:
+            self.solve_shifted_problem = solve_shifted_problem
 
-    def __call__(self, b):
-        '''Apply to b'''
-        return self.action(self, b)
+        if isinstance(compute_k, (int, float)):
+            # Fall back
+            self.compute_k = lambda a, b, c, k=compute_k: k
+        else:
+            self.compute_k = compute_k
+
+    def matvec(self, b):
+        s = self.s
+        if s > 0:
+            x, nsolves, niters = self.apply_negative_power(b, s)
+            self.nsolves += nsolves
+            self.niters += niters
+
+            return x
+        
+        # For negative s the action is base on the decomposition
+        # L^s = L^{s+1-1} = L^{(1+s)/2}*L^{-1}*L^{(1+s)/2}
+        L = self.shifted_operator(0)
+        # The first fraction apply
+        x0, nsolves, niters = self.apply_negative_power(b, 0.5*(1 + s))
+        self.nsolves += nsolves
+        self.niters += niters       
+        # L action
+        b1 = x0.copy()
+        L.mult(x0, b1)
+        # The second fraction apply
+        x, nsolves, niters = self.apply_negative_power(b1, 0.5*(1 + s))
+        self.nsolves += nsolves
+        self.niters += niters
+                
+        return x
+
+    @vec_pool
+    def create_vec(self, dim=1):
+        return Function(self.V).vector()
         
     def apply_negative_power(self, b, beta):
-        '''Bonito and Pesciak's paper on fractional powers of elliptic operator'''
+        '''
+        Using exponentially convergenging quadrature from Bonito&Pesciak
+
+          Numerical approximation of fractional powers of elliptic operators
+        '''
         assert between(beta, (0, 1))
         
         x = self.create_vec(1); x.zero()
         xk = x.copy()
-        # Adapt
+        # NOTE: k controls the number of quadrature points, we let user
+        # set that based on the fractianality, # of unknowns, mesh size
         k = self.compute_k(beta, b.size(), self.mesh_hmin)
 
-        M = int(ceil(pi**2/(4.*beta*k**2)))
+        M = int(ceil(pi**2/(4.*beta*k**2)))  # cf Remark 3.1
         N = int(ceil(pi**2/(4*(1 - beta)*k**2)))
 
         nsolves = 0
         iter_count = 0
+        print 'k', k, len(range(-M, N+1))
         for l in range(-M, N+1):
             nsolves += 1
             
             yl = l*k
-            shift = exp(-2.*yl)
+            shift = exp(-2.*yl)  # equation (37) in section 3.3
 
             A = self.shifted_operator(shift)
             # Keep track of number of iteration in inner solves
