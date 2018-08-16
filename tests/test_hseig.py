@@ -83,8 +83,6 @@ class TestHsNorm(unittest.TestCase):
         y1 = H*x
         y2 = A*x
         
-        print (y1 - y2).array()
-        
         error = (y1 - y2).norm('linf')
         self.assertTrue(error < 1E-13)
 
@@ -113,7 +111,7 @@ class TestHsNorm(unittest.TestCase):
             # Decrease
             self.assertTrue(all(np.diff(errors) < 0))
             # Order
-            deg = np.polyfit(np.log(hs), np.log(errors), 1)[1]
+            deg = np.polyfit(np.log(hs), np.log(errors), 1)[0]
             self.assertTrue(deg > 1)
 
 
@@ -143,5 +141,37 @@ class TestHs0Norm(unittest.TestCase):
             # Decrease
             self.assertTrue(all(np.diff(errors) < 0))
             # Order
-            deg = np.polyfit(np.log(hs), np.log(errors), 1)[1]
+            deg = np.polyfit(np.log(hs), np.log(errors), 1)[0]
+            self.assertTrue(deg > 1)
+
+    def test_def_nodal_dual(self):
+        '''Approximation of truth'''
+        for s in (0.25, 0.5, 0.75):
+            hs, errors = [], []
+            for n in [8, 16, 32, 64, 128, 256, 512]:
+                mesh = UnitIntervalMesh(n)
+
+                V = FunctionSpace(mesh, 'CG', 1)
+
+                k = 2
+                # An eigenfunction
+                f = interpolate(Expression('sin(k*pi*x[0])', k=k, degree=1), V)
+                # Numeric
+                H = Hs0Norm(V, bcs=DirichletBC(V, Constant(0), 'on_boundary'), s=s)
+                dHf = H*f.vector() # This is dual
+                # Want nodal
+                Hf = Function(V)
+                u, v = TrialFunction(V), TestFunction(V)
+                solve(assemble(inner(u, v)*dx), Hf.vector(), dHf)
+                # From def <(-Delta + I)^s u, v> 
+                truth = (k*pi)**(2*s)
+                f = truth*f
+
+                error = sqrt(abs(assemble(inner(f - Hf, f - Hf)*dx)))
+                hs.append(mesh.hmin())
+                errors.append(error)
+            # Decrease
+            self.assertTrue(all(np.diff(errors) < 0))
+            # Order
+            deg = np.polyfit(np.log(hs), np.log(errors), 1)[0]
             self.assertTrue(deg > 1)
