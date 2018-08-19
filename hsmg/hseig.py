@@ -33,6 +33,7 @@ class InterpolationMatrix(block_base):
         '''Action on b vector'''
         if self.matrix is None:
             M = self.M.array()
+            info('Computing %d eigenvalues' % M.shape[0])
             self.lmbda, self.U = eigh(self.A.array(), M)
             assert all(self.lmbda > 0)  # pos def
             # Build the matrix representation
@@ -51,6 +52,7 @@ class InterpolationMatrix(block_base):
         # block allows only positve powers
         if power == -1:
             if self.lmbda is None:
+                info('Computing %d eigenvalues' % self.M.size(0))
                 self.lmbda, self.U = eigh(self.A.array(), self.M.array())
                 
             W = self.U
@@ -83,17 +85,9 @@ def HsNorm(V, s, bcs=None):
 
         h = CellSize(V.mesh())
         h_avg = avg(h)
-        n = FacetNormal(V.mesh())
-        # NOTE: most of these terms vanish for DG zero. This is SIP
-        # formulation with all the penalty constants equal to 1
+
         # FIXME: bcs here
-        a = inner(grad(v), grad(u))*dx \
-            - inner(avg(grad(v)), jump(u, n))*dS \
-            - inner(jump(v, n), avg(grad(u)))*dS \
-            + Constant(8)*h_avg**(-1)*inner(jump(v, n), jump(u, n))*dS \
-            - inner(grad(v), u*n)*ds \
-            - inner(v*n, grad(u))*ds \
-            + Constant(4)*h**(-1)*inner(v, u)*ds
+        a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds + inner(u, v)*dx
     else:
         a = inner(grad(u), grad(v))*dx
 
