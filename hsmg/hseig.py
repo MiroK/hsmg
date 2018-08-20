@@ -33,7 +33,7 @@ class InterpolationMatrix(block_base):
         '''Action on b vector'''
         if self.matrix is None:
             M = self.M.array()
-            info('Computing %d eigenvalues' % M.shape[0])
+            info('Computing %d eigenvalues for InterpolationMatrix' % M.shape[0])
             self.lmbda, self.U = eigh(self.A.array(), M)
             assert all(self.lmbda > 0)  # pos def
             # Build the matrix representation
@@ -52,7 +52,7 @@ class InterpolationMatrix(block_base):
         # block allows only positve powers
         if power == -1:
             if self.lmbda is None:
-                info('Computing %d eigenvalues' % self.M.size(0))
+                info('Computing %d eigenvalues for InterpolationMatrix' % self.M.size(0))
                 self.lmbda, self.U = eigh(self.A.array(), self.M.array())
                 
             W = self.U
@@ -83,7 +83,7 @@ def HsNorm(V, s, bcs=None):
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
 
-        h = CellSize(V.mesh())
+        h = CellDiameter(V.mesh())
         h_avg = avg(h)
 
         # FIXME: bcs here
@@ -118,7 +118,7 @@ def Hs0Norm(V, s, bcs):
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         assert V.ufl_element().degree() == 0
 
-        h = CellSize(V.mesh())
+        h = CellDiameter(V.mesh())
         h_avg = avg(h)
         # FIXME: bcs here
         a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
