@@ -50,28 +50,7 @@ class BPOperator(block_base):
 
     def matvec(self, b):
         s = self.s
-        if s > 0:
-            x, nsolves, niters = self.apply_negative_power(b, s)
-            self.nsolves += nsolves
-            self.niters += niters
-
-            return x
-        
-        # For negative s the action is base on the decomposition
-        # L^s = L^{s+1-1} = L^{(1+s)/2}*L^{-1}*L^{(1+s)/2}
-        L = self.shifted_operator(0)
-        # The first fraction apply
-        x0, nsolves, niters = self.apply_negative_power(b, 0.5*(1 + s))
-        self.nsolves += nsolves
-        self.niters += niters       
-        # L action
-        b1 = x0.copy()
-        L.mult(x0, b1)
-        # The second fraction apply
-        x, nsolves, niters = self.apply_negative_power(b1, 0.5*(1 + s))
-        self.nsolves += nsolves
-        self.niters += niters
-                
+        x, nsolves, niters = self.apply_negative_power(b, s)
         return x
 
     @vec_pool
@@ -84,10 +63,16 @@ class BPOperator(block_base):
 
           Numerical approximation of fractional powers of elliptic operators
         '''
+        beta = -beta
         assert between(beta, (0, 1))
-        
-        x = self.create_vec(1); x.zero()
+
+        u, v = TrialFunction(self.V), TestFunction(self.V)
+        I = assemble(inner(u, v)*dx)
+
+        x = b.copy()
+        x.zero()
         xk = x.copy()
+        yk = x.copy()
         # NOTE: k controls the number of quadrature points, we let user
         # set that based on the fractianality, # of unknowns, mesh size
         k = self.compute_k(beta, b.size(), self.mesh_hmin)
@@ -99,16 +84,21 @@ class BPOperator(block_base):
         iter_count = 0
         for l in range(-M, N+1):
             nsolves += 1
+
+            solve(I, xk, b)
             
             yl = l*k
-            shift = exp(-2.*yl)  # equation (37) in section 3.3
+            shift = exp(2.*yl)  # equation (37) in section 3.3
 
             A = self.shifted_operator(shift)
             # Keep track of number of iteration in inner solves
-            count, xk = self.solve_shifted_problem(A, xk, b)
+            count, yk = self.solve_shifted_problem(A, yk, b)
             iter_count += count
-            
-            x.axpy(exp(2*yl*(beta - 1.)), xk)
+          
+            xk.axpy(-shift, yk)
+
+            x.axpy(exp((2*beta-1)*yl), xk)
+
         x *= 2*k*sin(pi*beta)/pi
 
         return x, nsolves, iter_count
