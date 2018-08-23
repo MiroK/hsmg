@@ -4,8 +4,11 @@
 
 from dolfin import *
 from hsmg.hsquad import InvFHelmholtz
-from scipy.optimize import bisect
+from block.algebraic.petsc import AMG, Cholesky
 import numpy as np
+
+
+set_log_level(WARNING)  # Shut up cbc.block setup info
 
 
 def get_error(k_value, s, n):
@@ -45,10 +48,15 @@ def solve_fract_helm(n, s, compute_k):
     mesh = UnitIntervalMesh(n)
 
     V = FunctionSpace(mesh, 'CG', 1)
-
+    # Operator
     A = HsNorm(V, s)
     # Preconditioner
-    B = InvFHelmholtz(V, s, bcs=None, compute_k=compute_k)
+    def solve_shifted_problem(A, x, b):
+        x = Cholesky(A)*b  # Direct; one sweep of AMG is AMG(A)*b
+        return (1, x)
+    
+    B = InvFHelmholtz(V, s, bcs=None, compute_k=compute_k,
+                      solve_shifted_problem=solve_shifted_problem)
     
     Ainv = ConjGrad(A, precond=B, tolerance=1E-14)
 

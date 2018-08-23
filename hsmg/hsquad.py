@@ -50,27 +50,65 @@ class BPOperator(block_base):
 
     def matvec(self, b):
         s = self.s
-        x, nsolves, niters = self.apply_negative_power(b, s)
+        if s > 0:
+            x, nsolves, niters = self.apply_negative_power(b, s)
+        else:
+            x, nsolves, niters = self.apply_positive_power(b, s)
+            
         return x
 
     @vec_pool
     def create_vec(self, dim=1):
         return Function(self.V).vector()
-        
+
     def apply_negative_power(self, b, beta):
         '''
         Using exponentially convergenging quadrature from Bonito&Pesciak
-
           Numerical approximation of fractional powers of elliptic operators
         '''
-        beta = -beta
         assert between(beta, (0, 1))
+        
+        x = self.create_vec(1); x.zero()
+        xk = x.copy()
+        # NOTE: k controls the number of quadrature points, we let user
+        # set that based on the fractianality, # of unknowns, mesh size
+        k = self.compute_k(beta, b.size(), self.mesh_hmin)
+
+        M = int(ceil(pi**2/(4.*beta*k**2)))  # cf Remark 3.1
+        N = int(ceil(pi**2/(4*(1 - beta)*k**2)))
+
+        nsolves = 0
+        iter_count = 0
+        for l in range(-M, N+1):
+            nsolves += 1
+            
+            yl = l*k
+            shift = exp(-2.*yl)  # equation (37) in section 3.3
+
+            A = self.shifted_operator(shift)
+            # Keep track of number of iteration in inner solves
+            count, xk = self.solve_shifted_problem(A, xk, b)
+            iter_count += count
+            
+            x.axpy(exp(2*yl*(beta - 1.)), xk)
+        x *= 2*k*sin(pi*beta)/pi
+
+        return x, nsolves, iter_count
+        
+    def apply_positive_power(self, b, beta):
+        '''
+        Trygve's idea of modifying the exponentially converging quadrature
+
+        sum_l exp((2beta-1)yl) (M\b - t*(L + tM)\b) with t = exp(2yl)
+
+        '''
+        beta = -beta
 
         u, v = TrialFunction(self.V), TestFunction(self.V)
         I = assemble(inner(u, v)*dx)
 
-        x = b.copy()
-        x.zero()
+        x = b.copy(); x.zero()
+        
         xk = x.copy()
         yk = x.copy()
         # NOTE: k controls the number of quadrature points, we let user
@@ -84,21 +122,22 @@ class BPOperator(block_base):
         iter_count = 0
         for l in range(-M, N+1):
             nsolves += 1
-
-            solve(I, xk, b)
+            
+            solve(I, xk, b)   # xk = M\b
             
             yl = l*k
-            shift = exp(2.*yl)  # equation (37) in section 3.3
+            shift = exp(2.*yl) 
 
             A = self.shifted_operator(shift)
             # Keep track of number of iteration in inner solves
-            count, yk = self.solve_shifted_problem(A, yk, b)
+            count, yk = self.solve_shifted_problem(A, yk, b)  # yk = (L + t M)\b
             iter_count += count
-          
+            
             xk.axpy(-shift, yk)
 
+            # Quad point contribution
             x.axpy(exp((2*beta-1)*yl), xk)
-
+        # Final scale
         x *= 2*k*sin(pi*beta)/pi
 
         return x, nsolves, iter_count
