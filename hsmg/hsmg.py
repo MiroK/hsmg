@@ -1,6 +1,6 @@
 from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
-from dolfin import FacetFunction, TrialFunction, TestFunction
+from dolfin import TrialFunction, TestFunction, MeshFunction
 from dolfin import Vector
 from dolfin import CellSize, avg, dot, jump, dS, ds
 
@@ -22,7 +22,7 @@ class HsNormMGBase(block_base):
     in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
     such that for all v \in V a(u, v) = m(u, v).
     '''
-    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, a, m, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -58,7 +58,7 @@ class HsNormMGBase(block_base):
             f = lambda mesh: (mesh.geometry().dim(), mesh.topology().dim())
             
             gdim, tdim = f(V.mesh())
-            assert all((gdim, tdim) == f(h) for h in mesh_hierarchy)
+            assert all((gdim, tdim) == f(h) for h in mesh_hierarchy), (gdim, tdim)
             assert V.mesh().num_cells() == mesh_hierarchy[0].num_cells()
             
         # If el is the finite element of V we build here operators
@@ -66,40 +66,39 @@ class HsNormMGBase(block_base):
         # FunctionSpace(mesh_hierarchy[i+1], el)
         R = restriction.restriction_matrix(V, mesh_hierarchy)
 
-        # The function which given macro element size produces for each
-        # level a map dof -> macro dofs
-        macro_dofmaps = partial(macro_element.macro_dofmap,
-                               space=V,
-                               mesh=mesh_hierarchy)
-        # e.g. macro_dofmaps(1)  # of size 1
-
         if bdry is not None:
             # For each level keep track of boundary dofs
             bdry_dofs = restriction.Dirichlet_dofs(V, bdry, mesh_hierarchy)
 
-            # Finally assemble the matrices of finest level
             mesh = mesh_hierarchy[0]
-            bdries = FacetFunction('size_t', mesh, 0)
+            bdries = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
             bdry.mark(bdries, 1)
             bcs_V = DirichletBC(V, Constant(0), bdries, 1)
         else:
-            bdry_dofs = []*len(mesh_hierarchy)
+            bdry_dofs = None
             bcs_V = None
-                            
-        # FIXME: boundary conditions are built into the system, okay?
+
+        # The function which given macro element size produces for each
+        # level a map dof -> macro dofs
+        macro_dofmaps = partial(macro_element.macro_dofmap,
+                                space=V,
+                                mesh=mesh_hierarchy,
+                                bdry_dofs=bdry_dofs)
+        # e.g. macro_dofmaps(1)  # of size 1
+   
         L = inner(Constant(0), TestFunction(V))*dx
         A, _ = assemble_system(a, L, bcs_V)
         M, _ = assemble_system(m, L, bcs_V)
 
         A, M = map(utils.to_csr_matrix, (A, M))
         # FIXME: Setup multigrid here
-        self.mg = hs_multigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
+        self.mg = hs_multigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params, neg_mg=neg_mg)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
     def matvec(self, b):
         # numpy -> numpy
-        x_values = self.mg(b.array())  
+        x_values = self.mg(b.get_local())
         # Fill in dolfin Vector
         x = self.create_vec(dim=0)
         x.set_local(x_values); x.apply('insert')
@@ -120,25 +119,23 @@ class HsNormMG(HsNormMGBase):
 
     Limit to Lagrange elements
     '''
-    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         u, v = TrialFunction(V), TestFunction(V)
 
-        if V.ufl_element().family() == 'Lagrange':
-            a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
-        else:
-            assert V.ufl_element().family() == 'Discontinuous Lagrange'
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
-            
             h = CellSize(V.mesh())
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
                 inner(u, v)*dx
-                
+        else:
+            a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+            
         m = inner(u, v)*dx
         # Note the introduction
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, neg_mg)
 
         
 class Hs0NormMG(HsNormMGBase):
@@ -151,15 +148,12 @@ class Hs0NormMG(HsNormMGBase):
  
     NOTE: bcs are a must here.
     '''
-    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None):
+    def __init__(self, V, bdry, s, mg_params, mesh_hierarchy=None, neg_mg='prepost'):
         assert bdry is not None
 
         u, v = TrialFunction(V), TestFunction(V)
 
-        if V.ufl_element().family() == 'Lagrange':
-            a = inner(grad(u), grad(v))*dx
-        else:
-            assert V.ufl_element().family() == 'Discontinuous Lagrange'
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
             
@@ -167,7 +161,11 @@ class Hs0NormMG(HsNormMGBase):
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+        else:
+            a = inner(grad(u), grad(v))*dx            
         
         m = inner(u, v)*dx
 
-        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy)
+        HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, neg_mg)
+
+        

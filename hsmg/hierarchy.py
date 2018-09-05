@@ -1,4 +1,4 @@
-from dolfin import CellFunction, refine, Mesh, MeshEditor
+from dolfin import MeshFunction, refine, Mesh, MeshEditor
 
 
 def by_refining(seed, nlevels):
@@ -8,7 +8,7 @@ def by_refining(seed, nlevels):
     level = 1
     while level < nlevels:
         mesh = hierarchy[-1]
-        where = CellFunction('bool', mesh, True)
+        where = MeshFunction('bool', mesh, mesh.topology().dim(), True)
         hierarchy.append(refine(mesh, where))
 
         level += 1
@@ -109,7 +109,7 @@ def coarsen(mesh):
 
 if __name__ == '__main__':
     from dolfin import UnitIntervalMesh, cells, near
-    from dolfin import BoundaryMesh, UnitSquareMesh, CellFunction
+    from dolfin import BoundaryMesh, UnitSquareMesh
     from dolfin import CompiledSubDomain, SubMesh, UnitCubeMesh
     from numpy.linalg import norm
     
@@ -122,18 +122,18 @@ if __name__ == '__main__':
     # Painful 1d in 2d        
     elif gdim == 2:
         mesh = BoundaryMesh(UnitSquareMesh(8, 8), 'exterior')
-        subdomains = CellFunction('size_t', mesh, 0)
+        subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
         CompiledSubDomain('near(x[1], 0)').mark(subdomains, 1)
         mesh = SubMesh(mesh, subdomains, 1)
     # 1d in 3d
     else:
         mesh = BoundaryMesh(UnitCubeMesh(8, 8, 8), 'exterior')
-        subdomains = CellFunction('size_t', mesh, 0)
+        subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
         CompiledSubDomain('near(x[2], 0)').mark(subdomains, 1)
         mesh = SubMesh(mesh, subdomains, 1)
 
         mesh = BoundaryMesh(mesh, 'exterior')
-        subdomains = CellFunction('size_t', mesh, 0)
+        subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
         CompiledSubDomain('near(x[1], 0)').mark(subdomains, 1)
         mesh = SubMesh(mesh, subdomains, 1)
 

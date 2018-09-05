@@ -1,53 +1,35 @@
 # Multigrid as preconditioner for eigenvalue laplacians
 
 from fenics_ii.utils.norms import H1_L2_InterpolationNorm
+from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
 
-from hsmg import HsNormMG
-
+from hsmg.hsquad import BP_H1Norm
+from hsmg.utils import to_csr_matrix
 from block.iterative import ConjGrad
-from block.algebraic.petsc import LumpedInvDiag
-from block.algebraic.petsc import LU
 
+from petsc4py import PETSc
 from dolfin import *
 import numpy as np
 
-import matplotlib.pyplot as plt
-fig, ax = plt.subplots()
 
-
-def generator(hierarchy, tolerance, mg_params_, neg_mg='prepost'):
+def generator(mesh, get_k):
     '''
-    Solve Ax = b where A is the eigenvalue representation of (-Delta + I)^s
+    Solve Ax = b where A is the eigenvalue representation of (-Delta)^s
     '''
-    
-    mesh = hierarchy[0]
     V = FunctionSpace(mesh, 'CG', 1)
     
-    A = H1_L2_InterpolationNorm(V).get_s_norm(s=s, as_type=PETScMatrix)
+    As = H1_L2_InterpolationNorm(V)
+  
+    bp_params = {'k': get_k,
+                 'solver': 'cholesky'}
     
-    mg_params = {'macro_size': 1,
-                 'nlevels': len(hierarchy),
-                 'eta': 1.0}
-    # FIXME, bdry = None does not work at the moment
-    bdry = DomainBoundary()
-    B = HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy)  
-
-    x = Function(V).vector()
-
-    bdry = None    
-    mg_params = {'nlevels': len(hierarchy)}
-    mg_params.update(mg_params_)
-                 
-
-    make_B = lambda s: HsNormMG(V, bdry, s, mg_params, mesh_hierarchy=hierarchy, neg_mg=neg_mg)
-
     f = Expression('sin(k*pi*x[0])', k=1, degree=4)
     # Wait for s to be send in
     while True:
         s = yield
 
         A = As.get_s_norm(s=s, as_type=PETScMatrix)
-        B = make_B(s)
+        B = BP_H1Norm(V, s, bp_params)
 
         x = Function(V).vector()
         # Init guess is random
@@ -59,8 +41,7 @@ def generator(hierarchy, tolerance, mg_params_, neg_mg='prepost'):
         v = TestFunction(V)
         b = assemble(inner(f, v)*dx)
     
-        Ainv = ConjGrad(A, precond=B, initial_guess=x,
-                        tolerance=tolerance, maxiter=500, show=2, relativeconv=True)
+        Ainv = ConjGrad(A, precond=B, initial_guess=x, tolerance=1e-13, maxiter=500, show=2)
 
         # Compute solution
         x = Ainv * b
@@ -69,10 +50,12 @@ def generator(hierarchy, tolerance, mg_params_, neg_mg='prepost'):
         size = V.dim()
 
         eigws = np.abs(Ainv.eigenvalue_estimates())
-        ax.plot(eigws, label='%d' % V.dim(), linestyle='none', marker='x')
-        
         lmin, lmax = np.sort(eigws)[[0, -1]]
         cond = lmax/lmin
+
+        nsolves, niters_per_solve = B.nsolves, float(B.niters)/B.nsolves
+        k = get_k(s, V.dim(), mesh.hmin())
+        print 'with k = %g, solves and niterations per solve[%d(%.4f)]' % (k, nsolves, niters_per_solve)
     
         yield (size, niters, cond)
 
@@ -81,8 +64,10 @@ def compute(gen, s):
     '''Trigger computations for given s'''
     gen.next()
     return gen.send(s)
-   
+
+
 # --------------------------------------------------------------------
+
 
 if __name__ == '__main__':
     from common import log_results, compute_hierarchy
@@ -91,40 +76,23 @@ if __name__ == '__main__':
     import argparse
     import re
 
-    # python snorm_mg.py "-0.6 : 0.01 : -0.4" -D 1 -n 7 -log ./results/h1.txt
-    
     D_options = ['1', '2',  # Xd in Xd
+                 '012', '013', '023',
                  '12', '13', '23',  # Xd in Yd no intersect
-                 '-12', '-13', '-23',  # Xd in Yd isect
-                 '012', '013', '023']  # Xd in Yd loop
+                 '-12', '-13', '-23']  # Xd in Yd isect
     
     parser = argparse.ArgumentParser()
-    # What
+    
     parser.add_argument('s', help='Exponent of the operator or start:step:end')
     parser.add_argument('-D', type=str, help='Solve Xd in Yd problem',
                         default='1', choices=['all'] + D_options)  # Xd in Yd loop
-    # How many
     parser.add_argument('-n', type=int, help='Number of refinements of initial mesh',
                         default=4)
-    # Storing
     parser.add_argument('-log', type=str, help='Path to file for storing results',
                          default='')
-    # Iterative solver setup
-    parser.add_argument('-tol', type=float, help='Relative tol for Krylov',
-                         default=1E-12)
-    parser.add_argument('-eta', type=float, help='eta parameter for MG smoother',
-                         default=1.0)
-    parser.add_argument('-mes', type=int, help='Macro element size for MG smoother',
-                        default=1)
-    parser.add_argument('-nlevels', type=int, help='Number of levels for multigrid',
-                        default=4)
-
-    parser.add_argument('-neg', type=str, help="What approach to use for negative s. (bpl or prepost",
-                        default='prepost', choices=['bpl', 'prepost'])
     args = parser.parse_args()
 
     # Fractionality series
-    print args.s
     try:
         s_values = [float(args.s)]
     except ValueError:
@@ -133,6 +101,7 @@ if __name__ == '__main__':
         # FIXME: map needed bacause of silly types in fenicsii
         s_values = map(float, np.arange(start, end+step, step))
 
+    get_k = lambda s, N, h: 5.0*1./ln(N)
     # Domain series
     domains = D_options if args.D == 'all' else [args.D]
 
@@ -142,14 +111,12 @@ if __name__ == '__main__':
         sizes = []
         for level, n in enumerate([2**i for i in range(5, 5+args.n)], 1):
             print '\t\t\033[1;37;31m%s\033[0m' % ('level %d, size %d' % (level, n+1))
-            hierarchy = compute_hierarchy(D, n, nlevels=args.nlevels)
-            gen = generator(hierarchy, tolerance=args.tol, mg_params_={'macro_size': args.mes,
-                                                                       'eta': args.eta}, neg_mg=args.neg)
+            mesh = compute_hierarchy(D, n, nlevels=1)[0]
+            gen = generator(mesh, get_k)
 
             for s in s_values:
                 size, niters, cond = compute(gen, s=s)
 
-    
                 msg = '@s = %g, Current iters %d, cond %.2f, previous %r'
                 print '\033[1;37;34m%s\033[0m' % (msg % (s, niters, cond, results[s][::-1]))
                 results[s].append((niters, cond))
@@ -159,9 +126,6 @@ if __name__ == '__main__':
             # Change make header aware properly
             if args.log:
                 args.D = D
-                log_results(args, sizes, results, name=basename(__file__),
-                            fmt='%d %d %.16f')
+                log_results(args, sizes, results, name=basename(__file__), fmt='%d %d %g')
 
-        plt.legend(loc='best')
-        plt.show()
-
+    # FiXME: record also the iterations

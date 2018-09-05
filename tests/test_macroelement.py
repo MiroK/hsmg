@@ -1,12 +1,13 @@
 from hsmg.hierarchy import by_refining
 from hsmg.macro_element import macro_dofmap, vertex_patch
+from hsmg.restriction import Dirichlet_dofs
 
-from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
-
-from dolfin import EdgeFunction, CompiledSubDomain, BoundaryMesh
-from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
-from dolfin import FunctionSpace, FiniteElement, DomainBoundary
-from dolfin import triangle, interval, tetrahedron
+from dolfin import (CompiledSubDomain, BoundaryMesh,
+                    UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh,
+                    FunctionSpace, FiniteElement, DomainBoundary,
+                    triangle, interval, tetrahedron,
+                    RectangleMesh, BoxMesh, Point,
+                    DirichletBC, dof_to_vertex_map)
 
 import numpy as np
 import random
@@ -14,38 +15,50 @@ import pytest
 
 
 def test_hierarchy_dm():
+    '''Sanity chacks, we get a patch for every vertex'''
     mesh = UnitIntervalMesh(5)
     hierarchy = by_refining(mesh, 4)
     V = FunctionSpace(hierarchy[0], 'CG', 1)
     ds = macro_dofmap(1, V, hierarchy)
 
     for mesh, d in zip(hierarchy, ds):
+        # Because there are no bcs
         assert FunctionSpace(mesh, 'CG', 1).dim() == len(d)
 
         
+def test_hierarchy_dm_bcs():
+    '''Removing bcs'''
+    mesh = UnitSquareMesh(8, 8)
+    hierarchy = by_refining(mesh, 4)
+    bdry = DomainBoundary()
+    
+    V = FunctionSpace(hierarchy[0], 'CG', 2)
+    
+    bdry_dofs = Dirichlet_dofs(V, bdry, hierarchy)
+    ds = macro_dofmap(1, V, hierarchy, bdry_dofs)
+
+    for mesh, d, bdofs in zip(hierarchy, ds, bdry_dofs):
+        # No boundary dof is present in the macro elemnt of any vertex
+        assert not any(set(macro_el) & set(bdofs) for macro_el in d)
+        # Note that for P1 there will be less patches then maps because
+        # bdry vertex macro_element with bcs is []
+        
 # --------------------------------------------------------------------
-
-
-def interval3d():
-    '''Mesh for testing line in 3d embedding'''
-    mesh = UnitCubeMesh(10, 10, 10)
-    f = EdgeFunction('size_t', mesh, 0)
-    CompiledSubDomain('near(x[0], x[1]) && near(x[1], x[2])').mark(f, 1)
-    return EmbeddedMesh(mesh, f, 1).mesh
-
 
 def interval2d():
     '''Mesh for testing line in 2d embedding'''
-    return BoundaryMesh(UnitSquareMesh(10, 10), 'exterior')
+    return BoundaryMesh(RectangleMesh(Point(-1, 0.5), Point(1, 1), 32, 32),
+                        'exterior')
 
 
 def triangle3d():
     '''Mesh for testing triangle in 3d embedding'''
-    return BoundaryMesh(UnitCubeMesh(10, 10, 10), 'exterior')
+    return BoundaryMesh(BoxMesh(Point(-1, -1, 0.5), Point(1, 1, 1), 16, 16, 16),
+                        'exterior')
 
         
 @pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
-                                  interval2d, interval3d, triangle3d])
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('degree', [0, 1, 2])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_DG(cell, degree, level):
@@ -70,7 +83,8 @@ def test_DG(cell, degree, level):
     assert dofs == set(sum((dm.cell_dofs(c).tolist() for c in patch), []))
 
     
-@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
+@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG1(cell, level):
     '''CG1 on level is all CG1 on previous level'''
@@ -101,7 +115,8 @@ def test_CG1(cell, level):
     assert dofs == dofs_, (dofs, dofs_)
 
 
-@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron])
+@pytest.mark.parametrize('cell', [interval, triangle, tetrahedron,
+                                  interval2d, triangle3d])
 @pytest.mark.parametrize('level', [1, 2, 3])
 def test_CG2(cell, level):
     meshes = {interval: UnitIntervalMesh(100),
@@ -110,33 +125,35 @@ def test_CG2(cell, level):
 
     mesh = meshes[cell] if cell in meshes else cell()
     
-    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 1)
+    elm = FiniteElement('Lagrange', mesh.ufl_cell(), 2)
     V = FunctionSpace(mesh, elm)
 
-    gdim = mesh.geometry().dim()
-        
-    # To avoid corner cases I only look at center point
+    gdim = mesh.geometry().dim()        
+    # To avoid corner cases I only look at center p
     X = mesh.coordinates()
     center = np.array([0.5]*gdim)
     i = min(range(len(X)), key = lambda i: np.linalg.norm(X[i] - center))
             
     dofs = set(macro_dofmap(level, V, mesh)[i])
 
-    mesh.init(gdim - 1, gdim)
-    mesh.init(gdim, gdim - 1)
-    c2f = mesh.topology()(gdim, gdim-1)
-    f2c = mesh.topology()(gdim-1, gdim)
+    tdim = mesh.topology().dim()
+    
+    mesh.init(tdim - 1, tdim)
+    mesh.init(tdim, tdim - 1)
+    c2f = mesh.topology()(tdim, tdim-1)
+    f2c = mesh.topology()(tdim-1, tdim)
         
-    # Remove dofs of facets on bouding surface
+    # # Remove dofs of facets on bouding surface
     patch = vertex_patch(mesh, i, level)
     dm = V.dofmap()
 
+    print patch
     dofs_ = set(sum((dm.cell_dofs(c).tolist() for c in patch), []))
     bdry = set()
     for cell in patch:
         cell_dofs = dm.cell_dofs(int(cell))
         # Is bounding facet iff it is not shared by cells of patch
-        for local, facet in enumerate(c2f(int(cell))):
+        for local, facet in enumerate(c2f(cell)):
             other_cell = (set(f2c(facet)) - set([cell])).pop()
             if other_cell not in patch:
                 outside = dm.tabulate_facet_dofs(local)
@@ -145,3 +162,84 @@ def test_CG2(cell, level):
     dofs_ = dofs_ - bdry
 
     assert dofs == dofs_, (dofs-dofs_, dofs_-dofs)
+
+##
+# There were some issues with macroelement due to bc dofs.
+##
+def test_P1_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 1
+    assert all(len(mel) == 1 for mel in mel_dmap)
+
+    
+def test_P1_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 1
+    assert all(len(mel) == 1 for mel in mel_dmap)
+
+    
+def test_P2_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'CG', 2)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 3
+    assert all(len(mel) == 3 for mel in mel_dmap)
+
+    
+def test_P2_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'CG', 2)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    x = mesh.coordinates()
+    for i, xi in enumerate(x):
+        mel = mel_dmap[i]
+
+        if abs(xi[0]*(1-xi[0])) < 1E-13:
+            assert len(mel) == 2, xi
+        else:
+            assert len(mel) == 3, (xi, abs(xi[0]*(1-x[0])))
+
+
+def test_DG0_macroel_loop():
+    mesh = UnitSquareMesh(20, 20)
+    mesh = BoundaryMesh(mesh, 'exterior')
+    V = FunctionSpace(mesh, 'DG', 0)
+    mel_dmap = macro_dofmap(1, V, mesh)
+    # Every mel size should be 2
+    assert all(len(mel) == 2 for mel in mel_dmap)
+
+    
+def test_DG0_macroel_interval():
+    mesh = UnitIntervalMesh(20)
+    V = FunctionSpace(mesh, 'DG', 0)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    x = mesh.coordinates()
+    for i, xi in enumerate(x):
+        mel = mel_dmap[i]
+
+        if abs(xi[0]*(1-xi[0])) < 1E-13:
+            assert len(mel) == 1, xi
+        else:
+            assert len(mel) == 2, (xi, abs(xi[0]*(1-x[0])))
+
+            
+def test_P1_macroel_square():
+    from collections import Counter
+    
+    mesh = UnitSquareMesh(20, 20)
+    V = FunctionSpace(mesh, 'CG', 1)
+    mel_dmap = macro_dofmap(1, V, mesh)
+
+    counts = Counter(map(len, mel_dmap))
+    assert counts[2] == 4  # Think 5x5 and point (1.0, 0.2)
+    assert counts[1] == len(mel_dmap) - 4
+
+    

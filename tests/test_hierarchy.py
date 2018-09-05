@@ -1,7 +1,7 @@
 from hsmg.hierarchy import by_refining, by_coarsening
 
 from dolfin import UnitIntervalMesh, cells, near
-from dolfin import BoundaryMesh, UnitSquareMesh, CellFunction
+from dolfin import BoundaryMesh, UnitSquareMesh, MeshFunction
 from dolfin import CompiledSubDomain, SubMesh, UnitCubeMesh
 from numpy.linalg import norm
     
@@ -47,7 +47,7 @@ def test_Hierarchy_1d():
 def test_Hierarchy_2d():
     # Painful 1d in 2d        
     mesh = BoundaryMesh(UnitSquareMesh(8, 8), 'exterior')
-    subdomains = CellFunction('size_t', mesh, 0)
+    subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
     CompiledSubDomain('near(x[1], 0)').mark(subdomains, 1)
     mesh = SubMesh(mesh, subdomains, 1)
 
@@ -56,12 +56,12 @@ def test_Hierarchy_2d():
 
 def test_Hierarchy_3d():
     mesh = BoundaryMesh(UnitCubeMesh(8, 8, 8), 'exterior')
-    subdomains = CellFunction('size_t', mesh, 0)
+    subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
     CompiledSubDomain('near(x[2], 0)').mark(subdomains, 1)
     mesh = SubMesh(mesh, subdomains, 1)
     
     mesh = BoundaryMesh(mesh, 'exterior')
-    subdomains = CellFunction('size_t', mesh, 0)
+    subdomains = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
     CompiledSubDomain('near(x[1], 0)').mark(subdomains, 1)
     mesh = SubMesh(mesh, subdomains, 1)
 
