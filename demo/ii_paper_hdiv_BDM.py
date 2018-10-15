@@ -59,9 +59,9 @@ def setup_system(rhs_data, precond, meshes, mg_params_, sys_params):
     f1, f2, g = rhs_data
     # F1 is like u1
 
-    S = FunctionSpace(omega, 'RT', 1)        # sigma
+    S = FunctionSpace(omega, 'BDM', 1)        # sigma
     V = FunctionSpace(omega, 'DG', 0)        # u
-    Q = FunctionSpace(gamma, 'DG', 0)   # p
+    Q = FunctionSpace(gamma, 'CG', 1)   # p
     W = [S, V, Q]
 
     sigma, u, p = map(TrialFunction, W)

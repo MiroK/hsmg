@@ -6,7 +6,8 @@ from fenics_ii.utils.convert import block_diagonal_matrix
 from block import block_mat, block_vec, block_bc, block_assemble
 from block.algebraic.petsc import LU, InvDiag
 
-from hsmg import HsNormMG, HsNorm, BP_H1Norm
+from hsmg.hsmg import HsNormMG
+from hsmg.hseig import HsNorm
 
 from dolfin import *
 import numpy as np

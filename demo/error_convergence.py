@@ -1,4 +1,4 @@
-from fenics_ii.utils.norms import H1_L2_InterpolationNorm
+#from fenics_ii.utils.norms import H1_L2_InterpolationNorm
 from dolfin import errornorm, interpolate
 import numpy as np
 

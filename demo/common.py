@@ -2,8 +2,8 @@ from dolfin import MeshFunction, SubsetIterator, CompiledSubDomain
 from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
 from dolfin import plot, sqrt, Function, info
 
-from fenics_ii.utils.direct import dolfin_solve
-from fenics_ii.trace_tools.embedded_mesh import EmbeddedMesh
+# from fenics_ii.utils.direct import dolfin_solve
+from xii import EmbeddedMesh
 from block.iterative import MinRes, CGN#, SubMinRes
 import numpy as np
 import os
