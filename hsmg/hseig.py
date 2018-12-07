@@ -86,6 +86,42 @@ def HsNorm(V, s, bcs=None):
         h = CellDiameter(V.mesh())
         h_avg = avg(h)
 
+        a = h_avg**(-1)*dot(jump(v), jump(u))*dS + inner(u, v)*dx
+        if bcs is not None:
+            a += h**(-1)*inner(u, v)*ds
+
+        return InterpolationMatrix(assemble(a), assemble(m), s)        
+    else:
+        a = inner(grad(u), grad(v))*dx
+
+    zero = Constant(np.zeros(v.ufl_element().value_shape()))
+    L = inner(zero, v)*dx
+
+    A, _ = assemble_system(a+m, L, bcs)
+    M, _ = assemble_system(m, L, bcs)
+
+    return InterpolationMatrix(A, M, s)
+
+
+def HsNormI(V, s, bcs=None):
+    '''
+    Interpolation matrix with A based on -Delta + I and M based on I/h.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = DirichletBC instance specifying boundary conditions
+
+    OUTPUT:
+      InterpolationMatrix
+    '''
+    u, v = TrialFunction(V), TestFunction(V)
+    
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+
+        h = CellDiameter(V.mesh())
+        h_avg = avg(h)
+
         # FIXME: bcs here
         a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds + inner(u, v)*dx
     else:
@@ -94,7 +130,11 @@ def HsNorm(V, s, bcs=None):
     zero = Constant(np.zeros(v.ufl_element().value_shape()))
     L = inner(zero, v)*dx
 
-    A, _ = assemble_system(a+m, L, bcs)
+    A, _ = assemble_system(a+inner(u, v)*dx, L, bcs)
+
+    h = CellDiameter(V.mesh())
+    m = (1./h)*inner(u, v)*dx
+    
     M, _ = assemble_system(m, L, bcs)
 
     return InterpolationMatrix(A, M, s)
