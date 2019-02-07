@@ -87,8 +87,12 @@ def HsNorm(V, s, bcs=None):
         h_avg = avg(h)
 
         a = h_avg**(-1)*dot(jump(v), jump(u))*dS + inner(u, v)*dx
-        if bcs is not None:
+        if bcs is True:
             a += h**(-1)*inner(u, v)*ds
+        else:
+            for dsi in bcs:
+                a += h**(-1)*inner(u, v)*dsi
+            
 
         return InterpolationMatrix(assemble(a), assemble(m), s)        
     else:
