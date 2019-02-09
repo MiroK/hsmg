@@ -1,6 +1,7 @@
 from dolfin import *
 from hsmg.hsquad import InvFHelmholtz
 import numpy as np
+import pdb
 
 # This example shows how to plug in solver to fractional Laplacian
 set_log_level(WARNING)
