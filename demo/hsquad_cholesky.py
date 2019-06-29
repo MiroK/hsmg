@@ -22,7 +22,7 @@ k = 2
 f = Expression('cos(k*pi*x[0])', k=k, degree=4)
 
 # Solve (-Delta + I)^s u_exact = f
-for s in (0.25, 0.5, 0.75, -0.25):
+for s in (-0.5, ): #(0.25, 0.5, 0.75, -0.25):
     hs, errors = [], []
     u_exact = Expression('cos(k*pi*x[0])/pow(pow(k*pi, 2) + 1, s)', s=s, k=k, degree=4)
     
@@ -36,7 +36,9 @@ for s in (0.25, 0.5, 0.75, -0.25):
         H = InvFHelmholtz(V, s, bcs=None, compute_k=0.5, solve_shifted_problem=my_solve)
         # NOTE: so the map is nodal to dual
         uh = Function(V, H*b)
-        
+	
+	pdb.set_trace()
+
         error = errornorm(u_exact, uh, 'L2')
         hs.append(mesh.hmin())
         errors.append(error)
