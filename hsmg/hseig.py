@@ -34,7 +34,6 @@ class InterpolationMatrix(block_base):
     A*U = M*U*Lambda and U'*M*U = I
     '''
     def __init__(self, A, M, s, tol=1E-10, lump=''):
-        assert between(s, (-1, 1))
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
@@ -46,6 +45,15 @@ class InterpolationMatrix(block_base):
         self.A = A
         self.M = M
 
+        # Allow tuples being combinations (weight, exponents)
+        if isinstance(s, (int, float)):
+            s = (1, s)
+        if isinstance(s, tuple):
+            s = [s]
+            
+        assert isinstance(s, list)
+        assert [-1-tol < exponent < 1+tol for _, exponent in s]
+        
         self.s = s
         # How to take M into account
         self.lump = lump
@@ -89,7 +97,13 @@ class InterpolationMatrix(block_base):
             
             # Build the matrix representation
             W = M.dot(self.U)
-            array = csr_matrix((W.dot(np.diag(self.lmbda**self.s))).dot(W.T))
+
+            # Build the diagonal
+            diag = np.zeros_like(self.lmbda)
+            for weight, exponent in self.s:
+                diag = diag + weight*self.lmbda**exponent
+            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
+                
             A = PETSc.Mat().createAIJ(size=array.shape,
                                       csr=(array.indptr, array.indices, array.data))
             self.matrix = PETScMatrix(A)
@@ -107,7 +121,13 @@ class InterpolationMatrix(block_base):
                 self.lmbda, self.U = eigh(self.A.array(), self.M.array())
                 
             W = self.U
-            array = csr_matrix((W.dot(np.diag(self.lmbda**(-self.s)))).dot(W.T))
+            
+            diag = np.zeros_like(self.lmbda)
+            for weight, exponent in self.s:
+                diag = diag + weight*self.lmbda**exponent
+            diag = 1./diag
+            
+            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
             A = PETSc.Mat().createAIJ(size=array.shape,
                                   csr=(array.indptr, array.indices, array.data))
             return PETScMatrix(A)
@@ -131,15 +151,24 @@ def HsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
     '''
     u, v = TrialFunction(V), TestFunction(V)
     m = inner(u, v)*dx
-    
+    mesh = V.mesh()
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         # FIXME: kappa \neq 1
-        h = CellDiameter(V.mesh())
+        h = CellDiameter(mesh)
         h_avg = avg(h)
 
         a = h_avg**(-1)*dot(jump(v), jump(u))*dS + inner(u, v)*dx
-        if bcs is True:
-            a += h**(-1)*inner(u, v)*ds            
+        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        # No bcs
+        if bcs is None: bcs = False
+        # Whole boundary
+        if isinstance(bcs, bool):
+            bcs and DomainBoundary().mark(facet_f, 1)
+        # Where they want it
+        else:
+            facet_f = bcs
+        # Add it
+        a += h**(-1)*inner(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)            
 
         return InterpolationMatrix(assemble(a), assemble(m), s, lump=lump)        
     else:
@@ -175,10 +204,20 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump=''):
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         assert V.ufl_element().degree() == 0
         # FIXME: kappa \neq 1
-        h = CellDiameter(V.mesh())
+        mesh = V.mesh()
+        h = CellDiameter(mesh)
         h_avg = avg(h)
         # NOTE: weakly include bcs
-        a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+        a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+
+        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        # Whole boundary
+        if isinstance(bcs, bool):
+            bcs and DomainBoundary().mark(facet_f, 1)
+        # Where they want it
+        else:
+            facet_f = bcs
+        a += h**(-1)*dot(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
 
         A, M = map(assemble, (a, m))
     else:
@@ -196,13 +235,18 @@ if __name__ == '__main__':
     import numpy as np
     import scipy.linalg as spla
     
-    mesh = UnitSquareMesh(64, 64)
+    mesh = UnitSquareMesh(16, 16)
     V = FunctionSpace(mesh, 'CG', 1)
     x = Function(V).vector()
 
     A = HsNorm(V, s=-0.5)
     A*x
 
+    AA = HsNorm(V, s=[(1, -0.5), (2, -0.25)])
+    B = AA**-1
+
+    print (x - B*AA*x).norm('l2'), '<<<<'
+    
 
     B = HsNorm(V, s=-0.5, lump='row')
     B*x
