@@ -2,6 +2,41 @@ from dolfin import PETScMatrix, as_backend_type, IndexMap
 from contextlib import contextmanager
 from scipy.sparse import csr_matrix
 from petsc4py import PETSc
+import numpy as np
+
+# NOTE: On my machine scipy eigh routines don't take advantage of threads
+# and so eigvanlue computations for GEVP are way too slope. On the other 
+# hand numpy's EVP solvers are fully threaded. Therefore it may pay off to
+# solve GEVP as EVP by numpy. THat is
+#
+# A U = B U L is
+# B^{-0.5} A U = B^{0.5} U L and by ansatz V = B^{-0.5} V we get sym EVP
+# B^{-0.5} A B^{-0.5} V = V L
+#
+# So eigenvalues are same.
+def my_eigvalsh(A, B):
+    '''Au = lmbda Bu transforming to EVP'''
+    # Transformation
+    beta, U = np.linalg.eigh(B)
+    print '\tDone power'
+    Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
+    # Eigenvalus of B^{-0.5} A B^{-0.5}
+    S = Bnh.dot(A.dot(Bnh))
+    return np.linalg.eigvalsh(S)
+
+
+def my_eigh(A, B):
+    '''Au = lmbda Bu transforming to EVP'''
+    # Transformation
+    beta, U = np.linalg.eigh(B)
+    print '\tDone power'
+    Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
+    
+    S = Bnh.dot(A.dot(Bnh))
+    lmbda, V = np.linalg.eigh(S)
+    # With transformed eigenvectors
+    return lmbda, Bnh.dot(V)
+
 
 
 def to_csr_matrix(A):

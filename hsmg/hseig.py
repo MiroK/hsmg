@@ -1,6 +1,6 @@
 from block.block_base import block_base
 from scipy.sparse import csr_matrix, diags
-from scipy.linalg import eigh
+from utils import my_eigh
 from petsc4py import PETSc
 import numpy as np
 from dolfin import *
@@ -64,37 +64,37 @@ class InterpolationMatrix(block_base):
     def matvec(self, b):
         '''Action on b vector'''
         if self.matrix is None:
-            
-            info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
-            t = Timer('eigh')
-            # Solve as generalized eigenvalue problem
-            if not self.lump:
-                M = self.M.array()
-                self.lmbda, self.U = eigh(self.A.array(), M)
-            else:
-                # The idea here is A u = l M u
-                # Let u = M-0.5 v so then M-0.5 A M-0.5 v = l v
-                # Solve EVP for          <------------>
-                # Eigenvector need M-0.5*v
-                if self.lump == 'diag':
-                    d = Diag(self.M, -0.5)
-                    M = Diag(self.M)
+            M = self.M.array()
+            if self.lmbda is None and self.U is None:
+                info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
+                t = Timer('eigh')
+                # Solve as generalized eigenvalue problem
+                if not self.lump:
+                    M = self.M.array()
+                    self.lmbda, self.U = my_eigh(self.A.array(), M)
                 else:
-                    d = LumpedDiag(self.M, -0.5)
-                    M = LumpedDiag(self.M)
-                # Using only the approx of mass matrix
-                M = diags(M.array)
+                    # The idea here is A u = l M u
+                    # Let u = M-0.5 v so then M-0.5 A M-0.5 v = l v
+                    # Solve EVP for          <------------>
+                    # Eigenvector need M-0.5*v
+                    if self.lump == 'diag':
+                        d = Diag(self.M, -0.5)
+                        M = Diag(self.M)
+                    else:
+                        d = LumpedDiag(self.M, -0.5)
+                        M = LumpedDiag(self.M)
+                        # Using only the approx of mass matrix
+                    M = diags(M.array)
                 
-                # Eigenvalues
-                Amat = as_backend_type(self.A).mat()
-                Amat.diagonalScale(d, d)  # Build M-0.5 A M-0.5
-                self.lmbda, V = np.linalg.eigh(PETScMatrix(Amat).array())
-                # Map eigenvectors
-                self.U = diags(d.array).dot(V)
-                
+                    # Eigenvalues
+                    Amat = as_backend_type(self.A).mat()
+                    Amat.diagonalScale(d, d)  # Build M-0.5 A M-0.5
+                    self.lmbda, V = np.linalg.eigh(PETScMatrix(Amat).array())
+                    # Map eigenvectors
+                    self.U = diags(d.array).dot(V)
+                info('Done %g' % t.stop())
             assert all(self.lmbda > 0)  # pos def
-            info('Done %g' % t.stop())
-            
+
             # Build the matrix representation
             W = M.dot(self.U)
 
@@ -118,7 +118,7 @@ class InterpolationMatrix(block_base):
         if power == -1:
             if self.lmbda is None:
                 info('Computing %d eigenvalues for InterpolationMatrix' % self.M.size(0))
-                self.lmbda, self.U = eigh(self.A.array(), self.M.array())
+                self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
                 
             W = self.U
             
