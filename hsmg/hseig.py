@@ -2,6 +2,7 @@ from block.block_base import block_base
 from scipy.sparse import csr_matrix, diags
 from utils import my_eigh
 from petsc4py import PETSc
+import numpy.ma as mask
 import numpy as np
 from dolfin import *
 
@@ -33,7 +34,7 @@ class InterpolationMatrix(block_base):
     Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
-    def __init__(self, A, M, s, tol=1E-10, lump=''):
+    def __init__(self, A, M, s, tol=1E-10, lump='', cap_zero_mean=False):
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
@@ -57,6 +58,7 @@ class InterpolationMatrix(block_base):
         self.s = s
         # How to take M into account
         self.lump = lump
+        self.cap_zero_mean = cap_zero_mean
         
     def create_vec(self, dim=0):
         return self.A.create_vec(dim)
@@ -93,16 +95,27 @@ class InterpolationMatrix(block_base):
                     # Map eigenvectors
                     self.U = diags(d.array).dot(V)
                 info('Done %g' % t.stop())
-            assert all(self.lmbda > 0)  # pos def
+            assert self.cap_zero_mean or all(self.lmbda > 0)  # pos def
 
             # Build the matrix representation
             W = M.dot(self.U)
 
             # Build the diagonal
             diag = np.zeros_like(self.lmbda)
+
+            # Zero eigenvalue is 1E-12
+            idx = np.abs(self.lmbda) < 1E-12*len(W)
+            print np.any(idx), 1E-12*len(W)
+            self.lmbda = mask.masked_array(self.lmbda, idx, fill_value=0.)
+        
             for weight, exponent in self.s:
                 diag = diag + weight*self.lmbda**exponent
-            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
+
+            if len(idx):
+                Z = W[:, idx]
+                array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T) + Z.dot(Z.T))
+            else:    
+                array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T))
                 
             A = PETSc.Mat().createAIJ(size=array.shape,
                                       csr=(array.indptr, array.indices, array.data))
@@ -116,18 +129,21 @@ class InterpolationMatrix(block_base):
         # For the returdned object the **-1 is no longer defined - cbc
         # block allows only positve powers
         if power == -1:
+            if self.cap_zero_mean: raise ValueError
+            
             if self.lmbda is None:
                 info('Computing %d eigenvalues for InterpolationMatrix' % self.M.size(0))
                 self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
+                self.lmbda = mask.masked_array(self.lmbda, np.abs(self.lmbda) < 1E-12, fill_value=0.)
                 
             W = self.U
             
             diag = np.zeros_like(self.lmbda)
             for weight, exponent in self.s:
                 diag = diag + weight*self.lmbda**exponent
-            diag = 1./diag
+            diag = diag**-1.
             
-            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
+            array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T))
             A = PETSc.Mat().createAIJ(size=array.shape,
                                   csr=(array.indptr, array.indices, array.data))
             return PETScMatrix(A)
@@ -228,6 +244,57 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump=''):
 
     return InterpolationMatrix(A, M, s, lump=lump)
 
+
+def HsZNorm(V, s, kappa=Constant(1)):
+    '''
+    Hs \cap L^2_0
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+    OUTPUT:
+      InterpolationMatrix
+    '''
+    u, v = TrialFunction(V), TestFunction(V)
+    m = inner(u, v)*dx
+
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+        assert V.ufl_element().degree() == 0
+        # FIXME: kappa \neq 1
+        mesh = V.mesh()
+        h = CellDiameter(mesh)
+        h_avg = avg(h)
+
+        a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+    else:
+        a = inner(kappa*grad(u), grad(v))*dx
+        
+    A, M = map(assemble, (a, m))
+    
+    return InterpolationMatrix(A, M, s, cap_zero_mean=True)
+
+
+
+def L20Norm(V):
+    '''Matrix for inner product of L^2_0 discretized by V'''
+    assert V.ufl_element().value_shape() == ()
+    one = interpolate(Constant(1), V)
+    # Make sure we have (1, 1) = 1
+    one.vector()[:] *= 1./sqrt(assemble(inner(one, one)*dx))
+
+    u, v = TrialFunction(V), TestFunction(V)
+    m = inner(u, v)*dx
+    M = assemble(m)
+
+    z = M*one.vector()
+    # Based on (Pu, Pv) where P is the projector
+    M = M.array() - np.outer(z.get_local(), z.get_local())
+    M = csr_matrix(M)
+    M = PETSc.Mat().createAIJ(size=M.shape,
+                              csr=(M.indptr, M.indices, M.data))
+
+    return PETScMatrix(M)
+
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -238,6 +305,9 @@ if __name__ == '__main__':
     mesh = UnitSquareMesh(16, 16)
     V = FunctionSpace(mesh, 'CG', 1)
     x = Function(V).vector()
+
+    y = interpolate(Constant(2), V).vector()
+    A = HsZNorm(V, s=-0.5)
 
     A = HsNorm(V, s=-0.5)
     A*x
@@ -253,3 +323,13 @@ if __name__ == '__main__':
 
     print np.linalg.norm(A.matrix.array() - B.matrix.array())
 
+    print 
+    z = interpolate(Constant(2), V).vector()
+    M = L20Norm(V)
+    print (M*z).norm('l2')
+
+    x = interpolate(Expression('sin(pi*(x[0]+x[1]))', degree=3), V)
+    mine = x.vector().inner(M*x.vector())
+    true = assemble(inner(x, x)*dx)
+
+    print abs(mine-true)
