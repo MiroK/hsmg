@@ -289,11 +289,10 @@ def L20Norm(V, bcs=None):
 
     z = M*one.vector()
     # Based on (Pu, Pv) where P is the projector
-    M = M.array() - np.outer(z.get_local(), z.get_local())
+    M = M.array() + np.outer(z.get_local(), z.get_local())
     M = csr_matrix(M)
     M = PETSc.Mat().createAIJ(size=M.shape,
                               csr=(M.indptr, M.indices, M.data))
-
     return PETScMatrix(M)
 
 # --------------------------------------------------------------------
