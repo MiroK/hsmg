@@ -91,7 +91,7 @@ def coarsen(mesh):
 
     mesh = Mesh()
     editor = MeshEditor()
-    editor.open(mesh, 1, gdim)
+    editor.open(mesh, 'interval', 1, gdim)
     editor.init_vertices(nvertices)
     editor.init_cells(len(mesh_cells))
 

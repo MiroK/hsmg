@@ -295,6 +295,28 @@ def L20Norm(V, bcs=None):
                               csr=(M.indptr, M.indices, M.data))
     return PETScMatrix(M)
 
+
+def L20Norm(V, weightM=1, weightZ=1, bcs=None):
+    '''Matrix for inner product of L^2_0 discretized by V'''
+    assert V.ufl_element().value_shape() == ()
+    one = interpolate(Constant(1), V)
+    # Make sure we have (1, 1) = 1
+    one.vector()[:] *= 1./sqrt(assemble(inner(one, one)*dx))
+
+    u, v = TrialFunction(V), TestFunction(V)
+    m = inner(u, v)*dx
+    L = inner(Constant(0), v)*dx
+    M, _ = assemble_system(m, L, bcs=bcs)
+
+    z = M*one.vector()
+    # Based on (Pu, Pv) where P is the projector
+    M = weightM*M.array() + weightZ*np.outer(z.get_local(), z.get_local())
+    M = csr_matrix(M)
+    M = PETSc.Mat().createAIJ(size=M.shape,
+                              csr=(M.indptr, M.indices, M.data))
+    return PETScMatrix(M)
+
+
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
