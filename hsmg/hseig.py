@@ -34,7 +34,7 @@ class InterpolationMatrix(block_base):
     Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
-    def __init__(self, A, M, s, tol=1E-10, lump='', cap_zero_mean=False):
+    def __init__(self, A, M, s, tol=1E-10, lump='', use_pinv=False):
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
@@ -58,7 +58,7 @@ class InterpolationMatrix(block_base):
         self.s = s
         # How to take M into account
         self.lump = lump
-        self.cap_zero_mean = cap_zero_mean
+        self.use_pinv = use_pinv
         
     def create_vec(self, dim=0):
         return self.A.create_vec(dim)
@@ -95,7 +95,7 @@ class InterpolationMatrix(block_base):
                     # Map eigenvectors
                     self.U = diags(d.array).dot(V)
                 info('Done %g' % t.stop())
-            assert self.cap_zero_mean or all(self.lmbda > 0)  # pos def
+            assert self.use_pinv or all(self.lmbda > 0)  # pos def
 
             # Build the matrix representation
             W = M.dot(self.U)
@@ -105,17 +105,12 @@ class InterpolationMatrix(block_base):
 
             # Zero eigenvalue is 1E-12
             idx = np.abs(self.lmbda) < 1E-12*len(W)
-            print np.any(idx), 1E-12*len(W)
-            self.lmbda = mask.masked_array(self.lmbda, idx, fill_value=0.)
+            self.lmbda[idx] = 1
         
             for weight, exponent in self.s:
                 diag = diag + weight*self.lmbda**exponent
 
-            if len(idx):
-                Z = W[:, idx]
-                array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T) + Z.dot(Z.T))
-            else:    
-                array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T))
+            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
                 
             A = PETSc.Mat().createAIJ(size=array.shape,
                                       csr=(array.indptr, array.indices, array.data))
@@ -199,7 +194,47 @@ def HsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
     return InterpolationMatrix(A, M, s, lump=lump)
 
 
-def Hs0Norm(V, s, bcs, kappa=Constant(1), lump=''):
+def wHsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
+    '''
+    This should act as kappa*Hs
+    '''
+    assert s < 0 or s > 0
+    
+    u, v = TrialFunction(V), TestFunction(V)
+    m = kappa*inner(u, v)*dx
+    mesh = V.mesh()
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+        # FIXME: kappa \neq 1
+        h = CellDiameter(mesh)
+        h_avg = avg(h)
+
+        a = kappa*h_avg**(-1)*dot(jump(v), jump(u))*dS + kappa*inner(u, v)*dx
+        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        # No bcs
+        if bcs is None: bcs = False
+        # Whole boundary
+        if isinstance(bcs, bool):
+            bcs and DomainBoundary().mark(facet_f, 1)
+        # Where they want it
+        else:
+            facet_f = bcs
+        # Add it
+        a += kappa*h**(-1)*inner(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)            
+
+        return InterpolationMatrix(assemble(a), assemble(m), s, lump=lump)        
+    else:
+        a = inner(kappa*grad(u), grad(v))*dx
+
+    zero = Constant(np.zeros(v.ufl_element().value_shape()))
+    L = inner(zero, v)*dx
+
+    A, _ = assemble_system(a+m, L, bcs)
+    M, _ = assemble_system(m, L, bcs)
+
+    return InterpolationMatrix(A, M, s, lump=lump)
+
+
+def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     '''
     Interpolation matrix with A based on -Delta and M based on I.
 
@@ -242,7 +277,47 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump=''):
         A, _ = assemble_system(a, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s, lump=lump)
+    return InterpolationMatrix(A, M, s, lump=lump, use_pinv=use_pinv)
+
+
+def wHs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
+    '''
+    This should act as kappa*Hs
+    '''
+    assert s < 0 or s > 0
+    
+    u, v = TrialFunction(V), TestFunction(V)
+    m = kappa*inner(u, v)*dx
+
+    zero = Constant(np.zeros(v.ufl_element().value_shape()))
+    L = inner(zero, v)*dx
+    
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+        assert V.ufl_element().degree() == 0
+        # FIXME: kappa \neq 1
+        mesh = V.mesh()
+        h = CellDiameter(mesh)
+        h_avg = avg(h)
+        # NOTE: weakly include bcs
+        a = kappa*h_avg**(-1)*dot(jump(v), jump(u))*dS
+
+        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        # Whole boundary
+        if isinstance(bcs, bool):
+            bcs and DomainBoundary().mark(facet_f, 1)
+        # Where they want it
+        else:
+            facet_f = bcs
+        a += kappa*h**(-1)*dot(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
+
+        A, M = map(assemble, (a, m))
+    else:
+        a = inner(kappa*grad(u), grad(v))*dx
+
+        A, _ = assemble_system(a, L, bcs)
+        M, _ = assemble_system(m, L, bcs)
+
+    return InterpolationMatrix(A, M, s, lump=lump,  use_pinv=use_pinv)
 
 
 def HsZNorm(V, s, kappa=Constant(1)):
@@ -323,35 +398,70 @@ if __name__ == '__main__':
     from dolfin import *
     import numpy as np
     import scipy.linalg as spla
+
+    if False:
+        mesh = UnitSquareMesh(16, 16)
+        V = FunctionSpace(mesh, 'CG', 1)
+        x = Function(V).vector()
+
+        y = interpolate(Constant(2), V).vector()
+        A = HsZNorm(V, s=-0.5)
+
+        A = HsNorm(V, s=-0.5)
+        A*x
+
+        AA = HsNorm(V, s=[(1, -0.5), (2, -0.25)])
+        B = AA**-1
+
+        print (x - B*AA*x).norm('l2'), '<<<<'
+
+
+        B = HsNorm(V, s=-0.5, lump='row')
+        B*x
+
+        print np.linalg.norm(A.matrix.array() - B.matrix.array())
+
+        print 
+        z = interpolate(Constant(2), V).vector()
+        M = L20Norm(V)
+        print (M*z).norm('l2')
+
+        x = interpolate(Expression('sin(pi*(x[0]+x[1]))', degree=3), V)
+        mine = x.vector().inner(M*x.vector())
+        true = assemble(inner(x, x)*dx)
+
+        print abs(mine-true)
+
+
+    import block
+
+    s = -0.123
+    mu = 1E4
     
-    mesh = UnitSquareMesh(16, 16)
+    mesh = UnitIntervalMesh(128)
+
     V = FunctionSpace(mesh, 'CG', 1)
     x = Function(V).vector()
-
-    y = interpolate(Constant(2), V).vector()
-    A = HsZNorm(V, s=-0.5)
-
-    A = HsNorm(V, s=-0.5)
-    A*x
-
-    AA = HsNorm(V, s=[(1, -0.5), (2, -0.25)])
-    B = AA**-1
-
-    print (x - B*AA*x).norm('l2'), '<<<<'
+    x.set_local(np.random.rand(x.local_size()))
     
+    A0 = HsNorm(V, s=s, bcs=None)
+    y0 = mu*A0*x
 
-    B = HsNorm(V, s=-0.5, lump='row')
-    B*x
+    A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
+    y = A*x
 
-    print np.linalg.norm(A.matrix.array() - B.matrix.array())
+    print (y - y0).norm('l2') 
 
-    print 
-    z = interpolate(Constant(2), V).vector()
-    M = L20Norm(V)
-    print (M*z).norm('l2')
+    # print (y-y0).get_local()
 
-    x = interpolate(Expression('sin(pi*(x[0]+x[1]))', degree=3), V)
-    mine = x.vector().inner(M*x.vector())
-    true = assemble(inner(x, x)*dx)
+    V = FunctionSpace(mesh, 'DG', 0)
+    x = Function(V).vector()
+    x.set_local(np.random.rand(x.local_size()))
+    
+    A0 = HsNorm(V, s=s, bcs=None)
+    y0 = mu*A0*x
 
-    print abs(mine-true)
+    A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
+    y = A*x
+
+    print (y - y0).norm('l2') 
