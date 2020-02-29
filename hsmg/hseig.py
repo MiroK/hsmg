@@ -198,7 +198,7 @@ def wHsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
     '''
     This should act as kappa*Hs
     '''
-    assert s < 0 or s > 0
+    # assert s < 0 or s > 0
     
     u, v = TrialFunction(V), TestFunction(V)
     m = kappa*inner(u, v)*dx
@@ -284,7 +284,7 @@ def wHs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     '''
     This should act as kappa*Hs
     '''
-    assert s < 0 or s > 0
+    # assert s < 0 or s > 0
     
     u, v = TrialFunction(V), TestFunction(V)
     m = kappa*inner(u, v)*dx
