@@ -43,7 +43,7 @@ def csr_to_dolfin(A):
 
 if __name__ == '__main__':
     from block.iterative import ConjGrad
-    from hsmg.hsmg import HsNormMG, HsNormAMG
+    from hsmg.hs_mg import HsNormMG, HsNormAMG
     import matplotlib.pyplot as plt
     import pyamg
 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     # of fractional laplacian (-Delta + I)^s
     Hs = Hs_gen(n)
 
-    frac_preconditioner = 'mg'
+    frac_preconditioner = 'amg'
     bdry = None
     s = 0.75    
     if frac_preconditioner == 'mg':

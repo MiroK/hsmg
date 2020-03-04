@@ -10,7 +10,8 @@ from block.block_base import block_base
 from functools import partial
 
 import macro_element
-import hs_multigrid, hs_amultigrid
+import hs_multigrid
+import hs_amultigrid
 import restriction
 import hierarchy
 import utils
@@ -210,7 +211,7 @@ class HsNormAMGBase(block_base):
         # Wishful thinking -- get the hierarchy from pyamg
         ml = mg_params['pyamg_solver'](A) 
         R = [l.R for l in ml.levels if hasattr(l, 'R')]
-        
+        print('AMG with %d levels' % len(R))
         bdry_dofs, macro_dofmaps = None, None
         # FIXME: Setup multigrid here
         self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)

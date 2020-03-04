@@ -1,9 +1,8 @@
-#!/usr/bin/env python
-
 import numpy as np
 import scipy.sparse as sp
 import scipy.linalg as la
 from dolfin import between
+from hsmg.smoothers import HSAS
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
 
@@ -313,48 +312,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params, neg_mg="prepost"):
     else:
         return FracLapMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
 
-
-class HSAS(object):
-    '''Class for Additive Schwarz operator approximating the Hs norm.'''
-    def __init__(self, A, M, s, dms, mask=[], eta=1.0):
-        '''Constructor.
-        INPUT:
-            A: stiffness matrix
-            M: mass matrix
-            s: (0,1), fractionality
-            dms: DOFs on each local patch
-            mask: Ignored indices when using operator
-            eta: scaling coefficient
-        '''
-        self.mask = mask
-        self.eta = eta
-        # Go through each patch:
-        B = sp.lil_matrix( A.shape, dtype=float )
-        Al = sp.lil_matrix(A)
-        Ml = sp.lil_matrix(M)
-        for dofs in dms:
-            # Local matrices:
-            try:  # Raises on UiO singularity 2017.1. image
-                Aloc = Al[np.ix_(dofs,dofs)].todense()
-                Mloc = Ml[np.ix_(dofs,dofs)].todense()
-            except AttributeError:
-                Aloc = np.array([[Al[np.ix_(dofs,dofs)]]])
-                Mloc = np.array([[Ml[np.ix_(dofs,dofs)]]])
-            
-            # solve local eigenvalue problem:
-            lam, Uloc = la.eigh(Aloc, b=Mloc, type=1)
-            Uloc = np.asarray( Uloc )
-            # Insert appropriately:
-            B[np.ix_(dofs,dofs)] += np.dot( Uloc * (lam**(-s)), Uloc.T)
-        # Set matrix:
-        self.B = sp.csr_matrix(B)
-
-    def __call__(self, b):
-        res = np.zeros(self.B.shape[1])
-        mask = self.mask
-        res[mask] = self.eta * self.B[np.ix_(mask,mask)].dot(b[mask])
-        return res
-
+    
 def _mass_lump_inv(M):
     """Return the inverse of the mass lumped diagonal matrix from M."""
     rsums = np.asarray( M.sum(axis=1).T)[0]
