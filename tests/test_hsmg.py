@@ -1,6 +1,6 @@
 from dolfin import UnitIntervalMesh, FunctionSpace, DomainBoundary
 from dolfin import interpolate, Expression
-from hsmg import Hs0NormMG
+from hsmg.hsmg import Hs0NormMG
 
 def test():
     mesh = UnitIntervalMesh(128)
@@ -17,3 +17,9 @@ def test():
     # Action
     y = MG_Half*x
     # Nothing raises
+
+# --------------------------------------------------------------------
+
+if __name__ == '__main__':
+
+    test()

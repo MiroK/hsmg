@@ -10,7 +10,7 @@ from block.block_base import block_base
 from functools import partial
 
 import macro_element
-import hs_multigrid
+import hs_multigrid, hs_amultigrid
 import restriction
 import hierarchy
 import utils
@@ -168,4 +168,92 @@ class Hs0NormMG(HsNormMGBase):
 
         HsNormMGBase.__init__(self, a, m, bdry, s, mg_params, mesh_hierarchy, neg_mg)
 
+# --------------------------------------------------------------------
+
+class HsNormAMGBase(block_base):
+    '''
+    Multi grid approximation of fraction H^s norm. The norm is defined
+    in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
+    such that for all v \in V a(u, v) = m(u, v).
+    '''
+    def __init__(self, a, m, bdry, s, mg_params):
+        assert bdry is None
+        # The input here is
+        # a, m the bilinear forms
+        # bdry; an instance of SubDomain class which marks the boundaries
+        # s: fraction exponent
+        # mg_prams: a dictionary of multigrid parameters
+        # ------------------------------------------------------------
+        # mesh_hierarchy: this is currently a part of signature because
+        # construction of dolfin's MeshHierarchy by coarsening the mesh
+        # of V does not work. We have a hand-made and rather limited
+        # implementation of this functionality for 1d meshes
         
+        # Same function space for a 
+        V = set(arg.function_space() for arg in a.arguments())
+        assert len(V) == 1
+        V = V.pop()
+        # and m
+        assert V in set(arg.function_space() for arg in m.arguments())
+        # Limit to scalar valued functions
+        assert V.dolfin_element().value_rank() == 0
+
+        # Keep s to where we know it works
+        assert between(s, (-1, 1.))
+
+        L = inner(Constant(0), TestFunction(V))*dx
+        A, _ = assemble_system(a, L)
+        M, _ = assemble_system(m, L)
+
+        A, M = map(utils.to_csr_matrix, (A, M))
+
+        # Wishful thinking -- get the hierarchy from pyamg
+        ml = mg_params['pyamg_solver'](A) 
+        R = [l.R for l in ml.levels if hasattr(l, 'R')]
+        
+        bdry_dofs, macro_dofmaps = None, None
+        # FIXME: Setup multigrid here
+        self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
+        self.size = V.dim()
+        
+    # Implementation of cbc.block API --------------------------------
+    def matvec(self, b):
+        # numpy -> numpy
+        x_values = self.mg(b.get_local())
+        # Fill in dolfin Vector
+        x = self.create_vec(dim=0)
+        x.set_local(x_values); x.apply('insert')
+        return x
+
+    @vec_pool
+    def create_vec(self, dim=1):
+        return Vector(None, self.size)
+        
+        
+class HsNormAMG(HsNormAMGBase):
+    '''
+    Multi grid approximation of fraction H^s norm. The norm is defined
+    in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
+    such that for all v \in V
+
+        (grad(u), grad(v))*dx + (u, v)*dx = lambda inner(u, v)*dx
+
+    Limit to Lagrange elements
+    '''
+    def __init__(self, V, bdry, s, mg_params):
+        u, v = TrialFunction(V), TestFunction(V)
+
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
+            # For now keep this with only for piecewise constants
+            assert V.ufl_element().degree() == 0
+            h = CellSize(V.mesh())
+            h_avg = avg(h)
+
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
+                inner(u, v)*dx
+        else:
+            a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+            
+        m = inner(u, v)*dx
+
+        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params)
