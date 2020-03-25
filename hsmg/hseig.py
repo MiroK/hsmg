@@ -20,13 +20,15 @@ def Diag(A, s=None):
     
 def LumpedDiag(A, s=None):
     '''Row sum of A as PETSc.Vec'''
-    mat = as_backend_type(A).mat()
-    d = map(lambda i: np.linalg.norm(mat.getRow(i)[1], 1), range(A.size(0)))
+    ones = A.create_vec()
+    ones.set_local(np.ones_like(ones.local_size()))
+    
+    d = A*ones
     
     if s is None:
-        return PETSc.Vec().createWithArray(np.array(d))
+        return d
     # Scaling
-    return PETSc.Vec().createWithArray(np.array(d)**s)
+    return PETSc.Vec().createWithArray(d.get_local()**s)
 
     
 class InterpolationMatrix(block_base):
@@ -38,7 +40,8 @@ class InterpolationMatrix(block_base):
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
-
+        # This is a layzy thing so the operator is not formed until
+        # its action is needed
         self.lmbda = None
         self.U = None
         self.matrix = None
@@ -46,6 +49,9 @@ class InterpolationMatrix(block_base):
         self.A = A
         self.M = M
 
+        # The s doesn't have to be a single power; we allos for alpha*()**s_alpha
+        # NOTE: this is a bit dangerous with DirichletBcs as it rescles
+        # the "zeroed" rows. 
         # Allow tuples being combinations (weight, exponents)
         if isinstance(s, (int, float)):
             s = (1, s)
@@ -65,56 +71,63 @@ class InterpolationMatrix(block_base):
         
     def matvec(self, b):
         '''Action on b vector'''
-        if self.matrix is None:
-            M = self.M.array()
-            if self.lmbda is None and self.U is None:
-                info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
-                t = Timer('eigh')
-                # Solve as generalized eigenvalue problem
-                if not self.lump:
-                    M = self.M.array()
-                    self.lmbda, self.U = my_eigh(self.A.array(), M)
-                else:
-                    # The idea here is A u = l M u
-                    # Let u = M-0.5 v so then M-0.5 A M-0.5 v = l v
-                    # Solve EVP for          <------------>
-                    # Eigenvector need M-0.5*v
-                    if self.lump == 'diag':
-                        d = Diag(self.M, -0.5)
-                        M = Diag(self.M)
-                    else:
-                        d = LumpedDiag(self.M, -0.5)
-                        M = LumpedDiag(self.M)
-                        # Using only the approx of mass matrix
-                    M = diags(M.array)
-                
-                    # Eigenvalues
-                    Amat = as_backend_type(self.A).mat()
-                    Amat.diagonalScale(d, d)  # Build M-0.5 A M-0.5
-                    self.lmbda, V = np.linalg.eigh(PETScMatrix(Amat).array())
-                    # Map eigenvectors
-                    self.U = diags(d.array).dot(V)
+        # We have the matrix
+        if self.matrix is not None:
+            return self.matrix*b
+
+        # We compute it for the first time
+        M = self.M.array()
+        if self.lmbda is None and self.U is None:
+            info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
+            t = Timer('eigh')
+            # Solve as generalized eigenvalue problem
+            if not self.lump:
+                M = self.M.array()
+                self.lmbda, self.U = my_eigh(self.A.array(), M)
                 info('Done %g' % t.stop())
-            assert self.use_pinv or all(self.lmbda > 0)  # pos def
-
-            # Build the matrix representation
-            W = M.dot(self.U)
-
-            # Build the diagonal
-            diag = np.zeros_like(self.lmbda)
-
-            # Zero eigenvalue is 1E-12
-            idx = np.abs(self.lmbda) < 1E-12*len(W)
-            self.lmbda[idx] = 1
-        
-            for weight, exponent in self.s:
-                diag = diag + weight*self.lmbda**exponent
-
-            array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
+            else:
+                # The idea here is A u = l M u
+                # Let u = M-0.5 v so then M-0.5 A M-0.5 v = l v
+                # Solve EVP for          <------------>
+                # Eigenvector need M-0.5*v
+                if self.lump == 'diag':
+                    d = Diag(self.M, -0.5)
+                    M = Diag(self.M)
+                else:
+                    d = LumpedDiag(self.M, -0.5)
+                    M = LumpedDiag(self.M)
+                # Using only the approx of mass matrix
+                M = diags(M.array)
                 
-            A = PETSc.Mat().createAIJ(size=array.shape,
+                # Eigenvalues
+                Amat = as_backend_type(self.A).mat()
+                Amat.diagonalScale(d, d)  # Build M-0.5 A M-0.5
+                self.lmbda, V = np.linalg.eigh(PETScMatrix(Amat).array())
+                # Map eigenvectors
+                self.U = diags(d.array).dot(V)
+                info('Done %g' % t.stop())
+
+        assert self.use_pinv or all(self.lmbda > 0)  # pos def
+
+        # Build the matrix representation
+        W = M.dot(self.U)
+
+        # Build the diagonal
+        diag = np.zeros_like(self.lmbda)
+
+        # Zero eigenvalue is 1E-12
+        idx = np.abs(self.lmbda) < 1E-12*len(W)
+        self.lmbda[idx] = 1
+        
+        for weight, exponent in self.s:
+            diag = diag + weight*self.lmbda**exponent
+
+        array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
+                
+        A = PETSc.Mat().createAIJ(size=array.shape,
                                       csr=(array.indptr, array.indices, array.data))
-            self.matrix = PETScMatrix(A)
+        self.matrix = PETScMatrix(A)
+
         return self.matrix*b
 
     def __pow__(self, power):
@@ -124,8 +137,6 @@ class InterpolationMatrix(block_base):
         # For the returdned object the **-1 is no longer defined - cbc
         # block allows only positve powers
         if power == -1:
-            if self.cap_zero_mean: raise ValueError
-            
             if self.lmbda is None:
                 info('Computing %d eigenvalues for InterpolationMatrix' % self.M.size(0))
                 self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
@@ -148,92 +159,6 @@ class InterpolationMatrix(block_base):
             return block_base.__pow__(self, power)
 
 
-def HsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
-    '''
-    Interpolation matrix with A based on -Delta + I and M based on I.
-
-    INPUT:
-      V = function space instance
-      s = float that is the fractionality exponent
-      bcs = DirichletBC instance specifying boundary conditions
-
-    OUTPUT:
-      InterpolationMatrix
-    '''
-    u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
-    mesh = V.mesh()
-    if V.ufl_element().family() == 'Discontinuous Lagrange':
-        # FIXME: kappa \neq 1
-        h = CellDiameter(mesh)
-        h_avg = avg(h)
-
-        a = h_avg**(-1)*dot(jump(v), jump(u))*dS + inner(u, v)*dx
-        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-        # No bcs
-        if bcs is None: bcs = False
-        # Whole boundary
-        if isinstance(bcs, bool):
-            bcs and DomainBoundary().mark(facet_f, 1)
-        # Where they want it
-        else:
-            facet_f = bcs
-        # Add it
-        a += h**(-1)*inner(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)            
-
-        return InterpolationMatrix(assemble(a), assemble(m), s, lump=lump)        
-    else:
-        a = inner(kappa*grad(u), grad(v))*dx
-        
-    zero = Constant(np.zeros(v.ufl_element().value_shape()))
-    L = inner(zero, v)*dx
-
-    A, _ = assemble_system(a+m, L, bcs)
-    M, _ = assemble_system(m, L, bcs)
-
-    return InterpolationMatrix(A, M, s, lump=lump)
-
-
-def wHsNorm(V, s, bcs=None, kappa=Constant(1), lump=''):
-    '''
-    This should act as kappa*Hs
-    '''
-    # assert s < 0 or s > 0
-    
-    u, v = TrialFunction(V), TestFunction(V)
-    m = kappa*inner(u, v)*dx
-    mesh = V.mesh()
-    if V.ufl_element().family() == 'Discontinuous Lagrange':
-        # FIXME: kappa \neq 1
-        h = CellDiameter(mesh)
-        h_avg = avg(h)
-
-        a = kappa*h_avg**(-1)*dot(jump(v), jump(u))*dS + kappa*inner(u, v)*dx
-        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-        # No bcs
-        if bcs is None: bcs = False
-        # Whole boundary
-        if isinstance(bcs, bool):
-            bcs and DomainBoundary().mark(facet_f, 1)
-        # Where they want it
-        else:
-            facet_f = bcs
-        # Add it
-        a += kappa*h**(-1)*inner(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)            
-
-        return InterpolationMatrix(assemble(a), assemble(m), s, lump=lump)        
-    else:
-        a = inner(kappa*grad(u), grad(v))*dx
-
-    zero = Constant(np.zeros(v.ufl_element().value_shape()))
-    L = inner(zero, v)*dx
-
-    A, _ = assemble_system(a+m, L, bcs)
-    M, _ = assemble_system(m, L, bcs)
-
-    return InterpolationMatrix(A, M, s, lump=lump)
-
-
 def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     '''
     Interpolation matrix with A based on -Delta and M based on I.
@@ -242,24 +167,38 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
       V = function space instance
       s = float that is the fractionality exponent
       bcs = DirichletBC instance specifying boundary conditions
+            for DG spaces FacetFunction which marks domain of homog.
+            Dirichlet as 1. Alternatively True means 'on_boundary'
 
     OUTPUT:
       InterpolationMatrix
     '''
     u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
+    m = kappa*inner(u, v)*dx
 
     zero = Constant(np.zeros(v.ufl_element().value_shape()))
     L = inner(zero, v)*dx
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
-        assert V.ufl_element().degree() == 0
+        # assert V.ufl_element().degree() == 0
         # FIXME: kappa \neq 1
         mesh = V.mesh()
         h = CellDiameter(mesh)
         h_avg = avg(h)
+        n = FacetNormal(mesh)
+
+        # Some heuristic to get the 
+        penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
+        penalty *= mesh.topology().dim()
+
+        alpha = Constant(penalty)
+        gamma = Constant(penalty)
         # NOTE: weakly include bcs
-        a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+        # a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+        a = (kappa*dot(grad(v), grad(u))*dx 
+            - kappa*dot(avg(grad(v)), jump(u, n))*dS 
+            - kappa*dot(jump(v, n), avg(grad(u)))*dS 
+            + kappa*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
 
         facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         # Whole boundary
@@ -268,8 +207,12 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
         # Where they want it
         else:
             facet_f = bcs
-        a += h**(-1)*dot(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
-
+        dBdry = ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
+            
+        a += (-kappa*dot(grad(v), u*n)*dBdry
+              - kappa*dot(v*n, grad(u))*dBdry
+              + kappa*(gamma/h)*v*u*dBdry)        
+            
         A, M = map(assemble, (a, m))
     else:
         a = inner(kappa*grad(u), grad(v))*dx
@@ -280,12 +223,20 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     return InterpolationMatrix(A, M, s, lump=lump, use_pinv=use_pinv)
 
 
-def wHs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
+def HsNorm(V, s, bcs=None, kappa=Constant(1), lump='', use_pinv=False):
     '''
-    This should act as kappa*Hs
+    Interpolation matrix with A based on -Delta and M based on I.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = DirichletBC instance specifying boundary conditions
+            for DG spaces FacetFunction which marks domain of homog.
+            Dirichlet as 1. Alternatively True means 'on_boundary'
+
+    OUTPUT:
+      InterpolationMatrix
     '''
-    # assert s < 0 or s > 0
-    
     u, v = TrialFunction(V), TestFunction(V)
     m = kappa*inner(u, v)*dx
 
@@ -293,13 +244,25 @@ def wHs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     L = inner(zero, v)*dx
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
-        assert V.ufl_element().degree() == 0
+        # assert V.ufl_element().degree() == 0
         # FIXME: kappa \neq 1
         mesh = V.mesh()
         h = CellDiameter(mesh)
         h_avg = avg(h)
+        n = FacetNormal(mesh)
+
+        # Some heuristic to get the 
+        penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
+        penalty *= mesh.topology().dim()
+
+        alpha = Constant(penalty)
+        gamma = Constant(penalty)
         # NOTE: weakly include bcs
-        a = kappa*h_avg**(-1)*dot(jump(v), jump(u))*dS
+        # a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+        a = (kappa*dot(grad(v), grad(u))*dx 
+            - kappa*dot(avg(grad(v)), jump(u, n))*dS 
+            - kappa*dot(jump(v, n), avg(grad(u)))*dS 
+            + kappa*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
 
         facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         # Whole boundary
@@ -308,91 +271,29 @@ def wHs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
         # Where they want it
         else:
             facet_f = bcs
-        a += kappa*h**(-1)*dot(u, v)*ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
-
+        dBdry = ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
+            
+        a += (-kappa*dot(grad(v), u*n)*dBdry
+              - kappa*dot(v*n, grad(u))*dBdry
+              + kappa*(gamma/h)*v*u*dBdry)        
+            
         A, M = map(assemble, (a, m))
     else:
         a = inner(kappa*grad(u), grad(v))*dx
 
-        A, _ = assemble_system(a, L, bcs)
+        A, _ = assemble_system(a+m, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s, lump=lump,  use_pinv=use_pinv)
+    return InterpolationMatrix(A, M, s, lump=lump, use_pinv=use_pinv)
 
 
-def HsZNorm(V, s, kappa=Constant(1)):
-    '''
-    Hs \cap L^2_0
-
-    INPUT:
-      V = function space instance
-      s = float that is the fractionality exponent
-    OUTPUT:
-      InterpolationMatrix
-    '''
-    u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
-
-    if V.ufl_element().family() == 'Discontinuous Lagrange':
-        assert V.ufl_element().degree() == 0
-        # FIXME: kappa \neq 1
-        mesh = V.mesh()
-        h = CellDiameter(mesh)
-        h_avg = avg(h)
-
-        a = h_avg**(-1)*dot(jump(v), jump(u))*dS
-    else:
-        a = inner(kappa*grad(u), grad(v))*dx
-        
-    A, M = map(assemble, (a, m))
-    
-    return InterpolationMatrix(A, M, s, cap_zero_mean=True)
-
-
-
-def L20Norm(V, bcs=None):
-    '''Matrix for inner product of L^2_0 discretized by V'''
-    assert V.ufl_element().value_shape() == ()
-    one = interpolate(Constant(1), V)
-    # Make sure we have (1, 1) = 1
-    one.vector()[:] *= 1./sqrt(assemble(inner(one, one)*dx))
-
-    u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
-    L = inner(Constant(0), v)*dx
-    M, _ = assemble_system(m, L, bcs=bcs)
-
-    z = M*one.vector()
-    # Based on (Pu, Pv) where P is the projector
-    M = M.array() + np.outer(z.get_local(), z.get_local())
-    M = csr_matrix(M)
-    M = PETSc.Mat().createAIJ(size=M.shape,
-                              csr=(M.indptr, M.indices, M.data))
-    return PETScMatrix(M)
-
-
-def L20Norm(V, weightM=1, weightZ=1, bcs=None):
-    '''Matrix for inner product of L^2_0 discretized by V'''
-    assert V.ufl_element().value_shape() == ()
-    one = interpolate(Constant(1), V)
-    # Make sure we have (1, 1) = 1
-    one.vector()[:] *= 1./sqrt(assemble(inner(one, one)*dx))
-
-    u, v = TrialFunction(V), TestFunction(V)
-    m = inner(u, v)*dx
-    L = inner(Constant(0), v)*dx
-    M, _ = assemble_system(m, L, bcs=bcs)
-
-    z = M*one.vector()
-    # Based on (Pu, Pv) where P is the projector
-    M = weightM*M.array() + weightZ*np.outer(z.get_local(), z.get_local())
-    M = csr_matrix(M)
-    M = PETSc.Mat().createAIJ(size=M.shape,
-                              csr=(M.indptr, M.indices, M.data))
-    return PETScMatrix(M)
+# Backward compatibility
+wHsNorm = HsNorm
+wHs0Norm = Hs0Norm
 
 
 # --------------------------------------------------------------------
+
 
 if __name__ == '__main__':
     from dolfin import *

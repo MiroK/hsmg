@@ -11,7 +11,7 @@ def Hs_gen(n):
     '''Fractional Laplacian'''
     assert n > 0
     assert -1 <= 0 <= 1
-    mesh = UnitIntervalMesh(n)
+    mesh = UnitSquareMesh(*(n, )*2)
     V = FunctionSpace(mesh, 'CG', 1)
     u, v = TrialFunction(V), TestFunction(V)
 
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import pyamg
 
-    n = 2**5
+    n = 2**6
     # This is a mapping from s to the CSR-formatted matrix representation
     # of fractional laplacian (-Delta + I)^s
     Hs = Hs_gen(n)
@@ -77,7 +77,8 @@ if __name__ == '__main__':
     vec = Vector(mpi_comm_world(), V.dim())
     vec.set_local(np.random.rand(V.dim()))
     x = HsInvMg*vec
-
+    print V.dim()
+    
     # How AMG solves stuff if it has access to the matrix
     if False:
         

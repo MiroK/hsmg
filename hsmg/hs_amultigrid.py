@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 import scipy.linalg as la
-from dolfin import between
+from dolfin import between, Timer
 from hsmg.smoothers import HSAS
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
@@ -155,4 +155,8 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
 
     # Return different types of preconditioner depending on s:
     assert s > 0
-    return FracLapAMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
+    timer = Timer('setupHsAMG')
+    obj = FracLapAMG(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
+    print('HsAMG setup took %g s' % timer.stop())
+    
+    return obj

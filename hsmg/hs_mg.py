@@ -1,7 +1,7 @@
 from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import TrialFunction, TestFunction, MeshFunction
-from dolfin import Vector
+from dolfin import Vector, Timer
 from dolfin import CellSize, avg, dot, jump, dS, ds
 
 from block.object_pool import vec_pool
@@ -220,7 +220,9 @@ class HsNormAMGBase(block_base):
     # Implementation of cbc.block API --------------------------------
     def matvec(self, b):
         # numpy -> numpy
+        t = Timer('iter')
         x_values = self.mg(b.get_local())
+        print('Mg iter took %g s' % t.stop())
         # Fill in dolfin Vector
         x = self.create_vec(dim=0)
         x.set_local(x_values); x.apply('insert')
