@@ -17,10 +17,27 @@ class HSAS(object):
         '''
         self.mask = mask
         self.eta = eta
+
+        # We can compote more efficienlty if the smoothers are pointwise
+        # rather than patchwise
+        if set(map(len, dms)) == set((1, )):
+            dms = np.hstack(dms)
+            
+            Al = A.diagonal()[dms]
+            Ml = M.diagonal()[dms]
+
+            Uloc = Ml**-0.5
+            lam  = Al*Uloc**2
+
+            self.B = sp.csr_matrix(sp.diags(Uloc**2*lam**(-s)))
+            return None
+
         # Go through each patch:
         B = sp.lil_matrix( A.shape, dtype=float )
         Al = sp.lil_matrix(A)
         Ml = sp.lil_matrix(M)
+
+        # Work on patches
         for dofs in dms:
             # Local matrices:
             
@@ -36,11 +53,13 @@ class HSAS(object):
             Uloc = np.asarray( Uloc )
             # Insert appropriately:
             B[np.ix_(dofs,dofs)] += np.dot( Uloc * (lam**(-s)), Uloc.T)
+
         # Set matrix:
         self.B = sp.csr_matrix(B)
 
     def __call__(self, b):
         res = np.zeros(self.B.shape[1])
         mask = self.mask
+        # print len(mask), len(b), self.B.shape
         res[mask] = self.eta * self.B[np.ix_(mask,mask)].dot(b[mask])
         return res

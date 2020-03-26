@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     frac_preconditioner = 'amg'
     bdry = None
-    s = 0.75    
+    s = 0.5    
     if frac_preconditioner == 'mg':
         mg_params = {'macro_size': 1,
                      'nlevels': 4,
@@ -64,7 +64,7 @@ if __name__ == '__main__':
         assert frac_preconditioner == 'amg'
         # Pass a fully configured solver that is constructed once A
         # goes in
-        mg_params = {'pyamg_solver': lambda A: pyamg.ruge_stuben_solver(A)}
+        mg_params = {'pyamg_solver': lambda A: pyamg.smoothed_aggregation_solver(A)}
         precond = HsNormAMG
         
     V, A = Hs(s)  # Csr    

@@ -17,8 +17,11 @@ def Hs_gen(n):
 
     a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
     m = inner(u, v)*dx
+    L = inner(Constant(0), v)*dx
+    bcs = DirichletBC(V, Constant(0), 'on_boundary')
     
-    A, M = map(assemble, (a, m))
+    A, _ = assemble_system(a, L, bcs)
+    M, _ = assemble_system(m, L, bcs)
 
     A_, M_ = A.array(), M.array()
     print('GEVP %d x %d' % (V.dim(), V.dim()))
@@ -28,7 +31,34 @@ def Hs_gen(n):
     
     W = M_.dot(U)
 
-    return lambda s, W=W, lmbda=lmbda:(V, csr_matrix(W.dot(np.diag(lmbda**s).dot(W.T))))
+    return lambda s, W=W, lmbda=lmbda:(V, csr_matrix(W.dot(np.diag(lmbda**s).dot(W.T))), DomainBoundary())
+
+
+def Hs0_gen(n):
+    '''Fractional Laplacian'''
+    assert n > 0
+    assert -1 <= 0 <= 1
+    mesh = UnitIntervalMesh(n)
+    V = FunctionSpace(mesh, 'CG', 1)
+    u, v = TrialFunction(V), TestFunction(V)
+
+    a = inner(grad(u), grad(v))*dx
+    m = inner(u, v)*dx
+    L = inner(Constant(0), v)*dx
+    bcs = DirichletBC(V, Constant(0), 'on_boundary')
+    
+    A, _ = assemble_system(a, L, bcs)
+    M, _ = assemble_system(m, L, bcs)
+
+    A_, M_ = A.array(), M.array()
+    print('GEVP %d x %d' % (V.dim(), V.dim()))
+    timer = Timer('Hs')
+    lmbda, U = eigh(A_, M_)
+    print('Done %s' % timer.stop())
+    
+    W = M_.dot(U)
+
+    return lambda s, W=W, lmbda=lmbda:(V, csr_matrix(W.dot(np.diag(lmbda**s).dot(W.T))), DomainBoundary())
 
 
 def csr_to_dolfin(A):
@@ -47,10 +77,10 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import pyamg
 
-    n = 2**5
+    n = 2**10
     # This is a mapping from s to the CSR-formatted matrix representation
     # of fractional laplacian (-Delta + I)^s
-    Hs = Hs_gen(n)
+    Hs = Hs0_gen(n)
 
     frac_preconditioner = 'amg'
     bdry = None
@@ -66,11 +96,11 @@ if __name__ == '__main__':
         # goes in
         mg_params = {'pyamg_solver': lambda A: pyamg.ruge_stuben_solver(A)}
         precond = HsNormAMG
-        
-    V, A = Hs(s)  # Csr    
+
+    V, A, bdry = Hs(s)  # Csr    
     Amat = csr_to_dolfin(A)  # Compat with cbc.block
     
-    precond = precond(V, bdry=None, s=s, mg_params=mg_params)
+    precond = precond(V, bdry=bdry, s=s, mg_params=mg_params)
     # Solve it by preconditioned CG
     HsInvMg = ConjGrad(Amat, precond=precond, tolerance=1E-10, show=3)
 

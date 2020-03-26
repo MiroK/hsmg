@@ -8,6 +8,7 @@ from block.object_pool import vec_pool
 from block.block_base import block_base
 
 from functools import partial
+import numpy as np
 
 import macro_element
 import hs_multigrid
@@ -178,7 +179,6 @@ class HsNormAMGBase(block_base):
     such that for all v \in V a(u, v) = m(u, v).
     '''
     def __init__(self, a, m, bdry, s, mg_params):
-        assert bdry is None
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -199,30 +199,53 @@ class HsNormAMGBase(block_base):
         # Limit to scalar valued functions
         assert V.dolfin_element().value_rank() == 0
 
+        # If coarsening could preserve boundary tags bcs by markers could
+        # be added
+        assert bdry is None or isinstance(bdry, (SubDomain, CompiledSubDomain))
+        
         # Keep s to where we know it works
         assert between(s, (-1, 1.))
 
+        if bdry is not None:
+            mesh = V.mesh()
+            bdries = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+            bdry.mark(bdries, 1)
+            bcs_V = DirichletBC(V, Constant(0), bdries, 1)
+        else:
+            bcs_V = None
+
         L = inner(Constant(0), TestFunction(V))*dx
-        A, _ = assemble_system(a, L)
-        M, _ = assemble_system(m, L)
+        A, _ = assemble_system(a, L, bcs_V)
+        M, _ = assemble_system(m, L, bcs_V)
 
         A, M = map(utils.to_csr_matrix, (A, M))
 
         # Wishful thinking -- get the hierarchy from pyamg
-        ml = mg_params['pyamg_solver'](A) 
+        t_amg = Timer('pyAMG')
+        # Based on the stiffness matrix
+        ml = mg_params['pyamg_solver'](A)
+        print('\tSetting up hierarchy took %g s' % t_amg.stop())
         R = [l.R for l in ml.levels if hasattr(l, 'R')]
         print('AMG with %d levels' % len(R))
-        bdry_dofs, macro_dofmaps = None, None
-        # FIXME: Setup multigrid here
+
+        # Macro dofmaps is how we setup the smoother; here we do it
+        # pointwise: NOTE: should we avoid the boundary?
+        macro_dofmaps = [np.arange(A.shape[0]).reshape((-1, 1))]
+        [macro_dofmaps.append(np.arange(Rk.shape[0]).reshape((-1, 1))) for Rk in R]
+
+        if bcs_V is None:
+            bdry_dofs = [[]]
+        else:
+            bdry_dofs = [bcs_V.get_boundary_values().keys()]
+        bdry_dofs.extend([list() for _ in range(len(R))])
+        
         self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
     def matvec(self, b):
         # numpy -> numpy
-        t = Timer('iter')
         x_values = self.mg(b.get_local())
-        print('Mg iter took %g s' % t.stop())
         # Fill in dolfin Vector
         x = self.create_vec(dim=0)
         x.set_local(x_values); x.apply('insert')
@@ -256,6 +279,34 @@ class HsNormAMG(HsNormAMGBase):
                 inner(u, v)*dx
         else:
             a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+            
+        m = inner(u, v)*dx
+
+        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params)
+
+
+class Hs0NormAMG(HsNormAMGBase):
+    '''
+    Multi grid approximation of fraction H_0^s norm. The norm is defined
+    in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
+    such that for all v \in V
+
+        (grad(u), grad(v))*dx  = lambda inner(u, v)*dx
+
+    Limit to Lagrange elements
+    '''
+    def __init__(self, V, bdry, s, mg_params):
+        u, v = TrialFunction(V), TestFunction(V)
+
+        if V.ufl_element().family() == 'Discontinuous Lagrange':
+            # For now keep this with only for piecewise constants
+            assert V.ufl_element().degree() == 0
+            h = CellSize(V.mesh())
+            h_avg = avg(h)
+
+            a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
+        else:
+            a = inner(grad(u), grad(v))*dx
             
         m = inner(u, v)*dx
 
