@@ -198,7 +198,7 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
         a = (kappa*dot(grad(v), grad(u))*dx 
             - kappa*dot(avg(grad(v)), jump(u, n))*dS 
             - kappa*dot(jump(v, n), avg(grad(u)))*dS 
-            + kappa*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
+            + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         # Whole boundary
@@ -262,7 +262,7 @@ def HsNorm(V, s, bcs=None, kappa=Constant(1), lump='', use_pinv=False):
         a = (kappa*dot(grad(v), grad(u))*dx 
             - kappa*dot(avg(grad(v)), jump(u, n))*dS 
             - kappa*dot(jump(v, n), avg(grad(u)))*dS 
-            + kappa*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
+            + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
         # Whole boundary
@@ -277,7 +277,7 @@ def HsNorm(V, s, bcs=None, kappa=Constant(1), lump='', use_pinv=False):
               - kappa*dot(v*n, grad(u))*dBdry
               + kappa*(gamma/h)*v*u*dBdry)        
             
-        A, M = map(assemble, (a, m))
+        A, M = map(assemble, (a+m, m))
     else:
         a = inner(kappa*grad(u), grad(v))*dx
 
