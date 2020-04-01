@@ -29,7 +29,11 @@ class HSAS(object):
             Uloc = Ml**-0.5
             lam  = Al*Uloc**2
 
-            self.B = sp.csr_matrix(sp.diags(Uloc**2*lam**(-s)))
+            # We want the matrix shape as A
+            #diag = np.zeros(A.shape[0])
+            diag = Uloc**2*lam**(-s)
+            
+            self.B = sp.csr_matrix(sp.diags(diag))
             return None
 
         # Go through each patch:
@@ -60,6 +64,5 @@ class HSAS(object):
     def __call__(self, b):
         res = np.zeros(self.B.shape[1])
         mask = self.mask
-        # print len(mask), len(b), self.B.shape
         res[mask] = self.eta * self.B[np.ix_(mask,mask)].dot(b[mask])
         return res

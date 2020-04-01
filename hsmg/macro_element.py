@@ -12,6 +12,8 @@ def macro_dofmap(size, space, mesh, bdry_dofs=None):
     on macro element of size around the VERTEX. 
     '''
     assert size >= 1
+    # FIXME: 1/4/2020 this is hack making hs(A)MG work
+    bdry_dofs = None
     # Recurse on hierarchy
     if not isinstance(mesh, Mesh):
         assert bdry_dofs is None or len(mesh) == len(bdry_dofs)

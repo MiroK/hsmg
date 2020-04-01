@@ -7,7 +7,7 @@ from hsmg.smoothers import HSAS
 # Return instance of Trygve's H^s multigrid. Its __call__ is an
 # action of numpy array
 
-def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
+def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params, neg_mg):
     '''
     Factory function for creating instances of MG methods for fractional Sobolev norms.
     INPUT:
@@ -146,9 +146,8 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
         def __call__(self, b):
             '''Call method.'''
             return self.bpx_level(0,b)
-
     # Negative s
-    class NegFracLapMG2(object):
+    class NegFracLapAMG2(object):
         '''Class for MG method for negative fractionality. Alternative approach.''' 
         def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             '''Constructor
@@ -220,7 +219,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
             return self.mg_params[key]
         
         def __setattr__(self, key, value):
-            super(NegFracLapMG2, self).__setattr__(key,value)
+            super(NegFracLapAMG2, self).__setattr__(key,value)
 
         def set_smoothers(self):
             '''Method for setting Additive Schwarz smoothers.'''
@@ -279,7 +278,19 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
         def __call__(self, b):
             '''Call method.'''
             return self.bpx_level(0,b)
-        
+
+    class NegFracLapAMG(object):
+        ''' BPX preconditioner for fractional laplacian with negative exponent.'''
+        def __init__(self, A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
+            self.A = A
+            assert between( s, (-1.,0.) )
+            self.BPX = FracLapAMG(A, M, R, 0.5*(1.+s), bdry_dofs, macro_dofmap, mg_params)
+
+        def __call__(self, b):
+            x0 = self.BPX(b)
+            b1 = self.A.dot(x0)
+            x1 = self.BPX(b1)
+            return x1
     #
     # Dispatch on s --------------------------------------------------
     # 
@@ -287,7 +298,10 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params):
     if s > 0:
         mg = FracLapAMG
     else:
-        mg = NegFracLapMG2
+        if neg_mg == 'bpl':
+            mg = NegFracLapAMG2
+        else:
+            mg = NegFracLapAMG
     mg = mg(A, M, R, s, bdry_dofs, macro_dofmap, mg_params)
     print('HsAMG setup took %g s' % timer.stop())
     

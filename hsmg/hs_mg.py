@@ -178,7 +178,7 @@ class HsNormAMGBase(block_base):
     in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
     such that for all v \in V a(u, v) = m(u, v).
     '''
-    def __init__(self, a, m, bdry, s, mg_params):
+    def __init__(self, a, m, bdry, s, mg_params, neg_mg='bpl'):
         # The input here is
         # a, m the bilinear forms
         # bdry; an instance of SubDomain class which marks the boundaries
@@ -238,8 +238,7 @@ class HsNormAMGBase(block_base):
         else:
             bdry_dofs = [bcs_V.get_boundary_values().keys()]
         bdry_dofs.extend([list() for _ in range(len(R))])
-        
-        self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params)
+        self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params, neg_mg)
         self.size = V.dim()
         
     # Implementation of cbc.block API --------------------------------
@@ -266,7 +265,7 @@ class HsNormAMG(HsNormAMGBase):
 
     Limit to Lagrange elements
     '''
-    def __init__(self, V, bdry, s, mg_params):
+    def __init__(self, V, bdry, s, mg_params, neg_mg='bpl'):
         u, v = TrialFunction(V), TestFunction(V)
 
         if V.ufl_element().family() == 'Discontinuous Lagrange':
@@ -282,7 +281,7 @@ class HsNormAMG(HsNormAMGBase):
             
         m = inner(u, v)*dx
 
-        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params)
+        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params, neg_mg)
 
 
 class Hs0NormAMG(HsNormAMGBase):
@@ -295,7 +294,7 @@ class Hs0NormAMG(HsNormAMGBase):
 
     Limit to Lagrange elements
     '''
-    def __init__(self, V, bdry, s, mg_params):
+    def __init__(self, V, bdry, s, mg_params, neg_mg='bpl'):
         u, v = TrialFunction(V), TestFunction(V)
 
         if V.ufl_element().family() == 'Discontinuous Lagrange':
@@ -310,4 +309,4 @@ class Hs0NormAMG(HsNormAMGBase):
             
         m = inner(u, v)*dx
 
-        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params)
+        HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params, neg_mg)
