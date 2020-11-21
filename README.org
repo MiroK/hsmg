@@ -5,6 +5,9 @@
   the cbc.block has to be installed from [[https://github.com/MiroK/cbc.block][github]] (until the features 
   are merged to cbc.block@bitbucket)
 
+** Citing
+  If you used hsmg in your research please consider citing our par on fractional [[https://epubs.siam.org/doi/abs/10.1137/18M1191488][multigrid]]
+
 ** Tests
    Execute `pytest` in the current directory.
 
