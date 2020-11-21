@@ -1,6 +1,6 @@
 from block.block_base import block_base
 from scipy.sparse import csr_matrix, diags
-from utils import my_eigh
+from hsmg.utils import my_eigh
 from petsc4py import PETSc
 import numpy.ma as mask
 import numpy as np
@@ -20,13 +20,15 @@ def Diag(A, s=None):
     
 def LumpedDiag(A, s=None):
     '''Row sum of A as PETSc.Vec'''
-    ones = A.create_vec()
-    ones.set_local(np.ones_like(ones.local_size()))
-    
+
+    ones = Vector(mpi_comm_world(), A.size(0))
+    ones[:] *= 0
+    ones[:] += 1.
+
     d = A*ones
-    
+
     if s is None:
-        return d
+        return as_backend_type(d).vec()
     # Scaling
     return PETSc.Vec().createWithArray(d.get_local()**s)
 
@@ -47,7 +49,35 @@ class InterpolationMatrix(block_base):
         self.matrix = None
 
         self.A = A
-        self.M = M
+        if 'diag' in lump:
+            X = M.copy()
+            Xmat = as_backend_type(X).mat()
+            Xmat.zeroEntries()
+            Xmat.setDiagonal(Diag(M))
+
+            if lump == 'diag':
+                self.Ml = X
+                self.M = X
+            else:
+                self.Ml = X
+                self.M = M
+        elif 'row' in lump:
+            X = M.copy()
+            Xmat = as_backend_type(X).mat()
+            Xmat.zeroEntries()
+            
+            Xmat.setDiagonal(LumpedDiag(M))
+        
+            if lump == 'row':
+                self.Ml = X
+                self.M = X
+            else:
+                self.Ml = X
+                self.M = M
+
+        else:
+            self.M = M
+            self.Ml = M
 
         # The s doesn't have to be a single power; we allos for alpha*()**s_alpha
         # NOTE: this is a bit dangerous with DirichletBcs as it rescles
@@ -76,39 +106,16 @@ class InterpolationMatrix(block_base):
             return self.matrix*b
 
         # We compute it for the first time
-        M = self.M.array()
         if self.lmbda is None and self.U is None:
             info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
             t = Timer('eigh')
             # Solve as generalized eigenvalue problem
-            if not self.lump:
-                M = self.M.array()
-                self.lmbda, self.U = my_eigh(self.A.array(), M)
-                info('Done %g' % t.stop())
-            else:
-                # The idea here is A u = l M u
-                # Let u = M-0.5 v so then M-0.5 A M-0.5 v = l v
-                # Solve EVP for          <------------>
-                # Eigenvector need M-0.5*v
-                if self.lump == 'diag':
-                    d = Diag(self.M, -0.5)
-                    M = Diag(self.M)
-                else:
-                    d = LumpedDiag(self.M, -0.5)
-                    M = LumpedDiag(self.M)
-                # Using only the approx of mass matrix
-                M = diags(M.array)
-                
-                # Eigenvalues
-                Amat = as_backend_type(self.A).mat()
-                Amat.diagonalScale(d, d)  # Build M-0.5 A M-0.5
-                self.lmbda, V = np.linalg.eigh(PETScMatrix(Amat).array())
-                # Map eigenvectors
-                self.U = diags(d.array).dot(V)
-                info('Done %g' % t.stop())
+            self.lmbda, self.U = my_eigh(self.A.array(), self.Ml.array())
+            info('Done %g' % t.stop())
 
         assert self.use_pinv or all(self.lmbda > 0)  # pos def
 
+        M = self.M.array()
         # Build the matrix representation
         W = M.dot(self.U)
 
@@ -320,18 +327,18 @@ if __name__ == '__main__':
         B = HsNorm(V, s=-0.5, lump='row')
         B*x
 
-        print np.linalg.norm(A.matrix.array() - B.matrix.array())
+        print(np.linalg.norm(A.matrix.array() - B.matrix.array()))
 
         print 
         z = interpolate(Constant(2), V).vector()
         M = L20Norm(V)
-        print (M*z).norm('l2')
+        print((M*z).norm('l2'))
 
         x = interpolate(Expression('sin(pi*(x[0]+x[1]))', degree=3), V)
         mine = x.vector().inner(M*x.vector())
         true = assemble(inner(x, x)*dx)
 
-        print abs(mine-true)
+        print(abs(mine-true))
 
 
     import block
@@ -351,7 +358,7 @@ if __name__ == '__main__':
     A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
     y = A*x
 
-    print (y - y0).norm('l2') 
+    print((y - y0).norm('l2'))
 
     # print (y-y0).get_local()
 
@@ -365,4 +372,4 @@ if __name__ == '__main__':
     A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
     y = A*x
 
-    print (y - y0).norm('l2') 
+    print((y - y0).norm('l2') )

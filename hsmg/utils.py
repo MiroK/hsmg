@@ -18,7 +18,7 @@ def my_eigvalsh(A, B):
     '''Au = lmbda Bu transforming to EVP'''
     # Transformation
     beta, U = np.linalg.eigh(B)
-    print '\tDone power'
+    print('\tDone power', np.min(np.abs(beta)))
     Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
     # Eigenvalus of B^{-0.5} A B^{-0.5}
     S = Bnh.dot(A.dot(Bnh))
@@ -29,7 +29,7 @@ def my_eigh(A, B):
     '''Au = lmbda Bu transforming to EVP'''
     # Transformation
     beta, U = np.linalg.eigh(B)
-    print '\tDone power'
+    print('\tDone power', np.min(np.abs(beta)))
     Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
     
     S = Bnh.dot(A.dot(Bnh))

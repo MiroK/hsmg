@@ -211,6 +211,7 @@ class HsNormAMGBase(block_base):
             bdries = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
             bdry.mark(bdries, 1)
             bcs_V = DirichletBC(V, Constant(0), bdries, 1)
+            if not bcs_V.get_boundary_values(): bcs_V = None
         else:
             bcs_V = None
 
@@ -228,6 +229,7 @@ class HsNormAMGBase(block_base):
         R = [l.R for l in ml.levels if hasattr(l, 'R')]
         print('AMG with %d levels' % len(R))
 
+        self.nlevels = len(R)
         # Macro dofmaps is how we setup the smoother; here we do it
         # pointwise: NOTE: should we avoid the boundary?
         macro_dofmaps = [np.arange(A.shape[0]).reshape((-1, 1))]

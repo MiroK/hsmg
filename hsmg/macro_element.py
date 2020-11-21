@@ -33,6 +33,8 @@ def macro_dofmap(size, space, mesh, bdry_dofs=None):
     domain_boundary = set(imap(operator.methodcaller('index'), SubsetIterator(f, 1)))
 
     if bdry_dofs is None:
+        if size == 1 and space.ufl_element().family() == 'Lagrange' and space.ufl_element().degree() == 1:
+            return np.arange(space.dim()).reshape((-1, 1))
         return [np.fromiter(macro_element(space, v, size, domain_boundary), dtype=int)
                 for v in range(mesh.num_vertices())]
 
@@ -40,8 +42,12 @@ def macro_dofmap(size, space, mesh, bdry_dofs=None):
     # dofs is empty, in that case it does not enter the map
     else:
         bdry_dofs = set(bdry_dofs)
-        maybe = (macro_element(space, vertex, size, domain_boundary) - bdry_dofs
-                 for vertex in range(mesh.num_vertices()))
+        print (size == 1 and space.ufl_element().family() == 'Lagrange' and space.ufl_element().degree() == 1)
+        if size == 1 and space.ufl_element().family() == 'Lagrange' and space.ufl_element().degree() == 1:
+            maybe = np.arange(space.dim()).reshape((-1, 1))
+        else:
+            maybe = (macro_element(space, vertex, size, domain_boundary) - bdry_dofs
+                     for vertex in range(mesh.num_vertices()))
         # Remove bdry dofs from macro element, only not empy remaing
         definitely = ifilter(bool, maybe)
         return [np.fromiter(elm, dtype=int) for elm in definitely]

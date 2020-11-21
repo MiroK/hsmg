@@ -25,7 +25,6 @@ class HSAS(object):
             
             Al = A.diagonal()[dms]
             Ml = M.diagonal()[dms]
-
             Uloc = Ml**-0.5
             lam  = Al*Uloc**2
 
@@ -34,6 +33,12 @@ class HSAS(object):
             diag = Uloc**2*lam**(-s)
             
             self.B = sp.csr_matrix(sp.diags(diag))
+            # Extract masked only once
+            if not np.all(mask):
+                self.B_mask = self.B[np.ix_(mask,mask)]
+            else:
+                self.B_mask = self.B
+
             return None
 
         # Go through each patch:
@@ -60,9 +65,14 @@ class HSAS(object):
 
         # Set matrix:
         self.B = sp.csr_matrix(B)
+        # Extract masked only once
+        if not np.all(mask):
+            self.B_mask = self.B[np.ix_(mask,mask)]
+        else:
+            self.B_mask = self.B
 
     def __call__(self, b):
         res = np.zeros(self.B.shape[1])
         mask = self.mask
-        res[mask] = self.eta * self.B[np.ix_(mask,mask)].dot(b[mask])
+        res[mask] = self.eta * self.B_mask.dot(b[mask])
         return res

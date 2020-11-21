@@ -109,12 +109,12 @@ if __name__ == '__main__':
     x = HsInvMg*vec
 
     # How AMG solves stuff if it has access to the matrix
-    if False:
+    if True:
         
         b = np.random.rand(n+1)
         s_residuals = {}
         for s in [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]:
-            _, A = Hs(s)
+            _, A, _ = Hs(s)
             ml = pyamg.ruge_stuben_solver(A) 
             print(ml)  # Hierarchy information
             
@@ -124,9 +124,18 @@ if __name__ == '__main__':
             
             s_residuals[s] = residuals
 
-
         plt.figure()
         for s in sorted(s_residuals.keys()):
             plt.semilogy(s_residuals[s], label=str(s))
         plt.legend()
         plt.show()
+
+        data = np.arange(len(max(s_residuals.values())))
+        data = np.c_[data, np.nan*np.ones((len(data), len(s_residuals)))]
+        for col, s in enumerate(s_residuals, 1):
+            errors = s_residuals[s]
+            data[:len(errors), col] = errors
+
+        with open('amg_history.txt', 'w') as out:
+            out.write(' '.join(['k'] + ['s%g' % s for s in s_residuals]) + '\n')
+            np.savetxt(out, data)
