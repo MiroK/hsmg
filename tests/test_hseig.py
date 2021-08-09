@@ -1,5 +1,5 @@
 from dolfin import *
-from hsmg.hseig import Hs0Eig, HsNorm
+from hsmg.hseig import Hs0Eig, HsEig
 from hsmg.utils import from_np_array
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ def test_identity():
     mesh = UnitSquareMesh(5, 5)
     
     V = FunctionSpace(mesh, 'CG', 1)
-    H = HsNorm(V, s=0.123)
+    H = HsEig(V, s=0.123)
 
     x = H.create_vec()
     x.set_local(np.random.rand(x.local_size()))
@@ -29,7 +29,7 @@ def test_def_1(kappa):
     mesh = UnitSquareMesh(5, 5)
 
     V = FunctionSpace(mesh, 'CG', 1)
-    H = HsNorm(V, s=1.0, kappa=kappa)
+    H = HsEig(V, s=1.0, kappa=kappa)
 
     u, v = TrialFunction(V), TestFunction(V)
     A = assemble(kappa*inner(u, v)*dx + kappa*inner(grad(u), grad(v))*dx)
@@ -50,7 +50,7 @@ def test_def_0():
     mesh = UnitSquareMesh(5, 5)
 
     V = FunctionSpace(mesh, 'CG', 1)
-    H = HsNorm(V, s=0.0)
+    H = HsEig(V, s=0.0)
 
     u, v = TrialFunction(V), TestFunction(V)
     A = assemble(inner(u, v)*dx)
@@ -79,7 +79,7 @@ def test_def(make_space):
             # An eigenfunction
             f = interpolate(Expression('cos(k*pi*x[0])', k=k, degree=1), V).vector()
             # Numeric
-            H = HsNorm(V, s=s)
+            H = HsEig(V, s=s)
             Hs_norm = f.inner(H*f)
             # From def <(-Delta + I)^s u, v> 
             truth = ((k*pi)**2 + 1)**(s) * 0.5  # 0.5 is form L2 norm of f)

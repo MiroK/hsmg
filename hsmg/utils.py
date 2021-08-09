@@ -76,6 +76,7 @@ def from_np_array(A, out=PETScMatrix):
     else:
         return out(B)
 
+
     
 @contextmanager
 def petsc_serial_matrix(test_space, trial_space, nnz=None):
