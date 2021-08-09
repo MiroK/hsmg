@@ -1,4 +1,4 @@
-from dolfin import PETScMatrix, as_backend_type, IndexMap
+from dolfin import PETScMatrix, as_backend_type, IndexMap, info
 from contextlib import contextmanager
 from scipy.sparse import csr_matrix
 from petsc4py import PETSc
@@ -18,7 +18,7 @@ def my_eigvalsh(A, B):
     '''Au = lmbda Bu transforming to EVP'''
     # Transformation
     beta, U = np.linalg.eigh(B)
-    print('\tDone power', np.min(np.abs(beta)))
+    info('\tDone power %g' % np.min(np.abs(beta)))
     Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
     # Eigenvalus of B^{-0.5} A B^{-0.5}
     S = Bnh.dot(A.dot(Bnh))
@@ -29,7 +29,7 @@ def my_eigh(A, B):
     '''Au = lmbda Bu transforming to EVP'''
     # Transformation
     beta, U = np.linalg.eigh(B)
-    print('\tDone power', np.min(np.abs(beta)))
+    info('\tDone power %g' % np.min(np.abs(beta)))
     Bnh = U.dot(np.diag(beta**-0.5).dot(U.T))
     
     S = Bnh.dot(A.dot(Bnh))

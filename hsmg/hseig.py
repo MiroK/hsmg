@@ -1,36 +1,11 @@
 from block.block_base import block_base
 from scipy.sparse import csr_matrix, diags
+from scipy.linalg import eigh
 from hsmg.utils import my_eigh
 from petsc4py import PETSc
 import numpy.ma as mask
 import numpy as np
 from dolfin import *
-
-
-def Diag(A, s=None):
-    '''A diagonal of matrix as PETSc.Vec'''
-    if s is None:
-        return as_backend_type(A).mat().getDiagonal()
-    # Scale
-    d = as_backend_type(A).mat().getDiagonal()
-    d.setValues(d.array_r**s)
-    
-    return d
-
-    
-def LumpedDiag(A, s=None):
-    '''Row sum of A as PETSc.Vec'''
-
-    ones = Vector(mpi_comm_world(), A.size(0))
-    ones[:] *= 0
-    ones[:] += 1.
-
-    d = A*ones
-
-    if s is None:
-        return as_backend_type(d).vec()
-    # Scaling
-    return PETSc.Vec().createWithArray(d.get_local()**s)
 
     
 class InterpolationMatrix(block_base):
@@ -38,7 +13,7 @@ class InterpolationMatrix(block_base):
     Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
-    def __init__(self, A, M, s, tol=1E-10, lump='', use_pinv=False):
+    def __init__(self, A, M, s, tol=1E-10):
         # Verify symmetry
         assert as_backend_type(A).mat().isHermitian(tol)
         assert as_backend_type(M).mat().isHermitian(tol)
@@ -46,55 +21,13 @@ class InterpolationMatrix(block_base):
         # its action is needed
         self.lmbda = None
         self.U = None
-        self.matrix = None
+        self.matrix = None  # Matrix representation of the operator
 
         self.A = A
-        if 'diag' in lump:
-            X = M.copy()
-            Xmat = as_backend_type(X).mat()
-            Xmat.zeroEntries()
-            Xmat.setDiagonal(Diag(M))
+        self.M = M
 
-            if lump == 'diag':
-                self.Ml = X
-                self.M = X
-            else:
-                self.Ml = X
-                self.M = M
-        elif 'row' in lump:
-            X = M.copy()
-            Xmat = as_backend_type(X).mat()
-            Xmat.zeroEntries()
-            
-            Xmat.setDiagonal(LumpedDiag(M))
-        
-            if lump == 'row':
-                self.Ml = X
-                self.M = X
-            else:
-                self.Ml = X
-                self.M = M
-
-        else:
-            self.M = M
-            self.Ml = M
-
-        # The s doesn't have to be a single power; we allos for alpha*()**s_alpha
-        # NOTE: this is a bit dangerous with DirichletBcs as it rescles
-        # the "zeroed" rows. 
-        # Allow tuples being combinations (weight, exponents)
-        if isinstance(s, (int, float)):
-            s = (1, s)
-        if isinstance(s, tuple):
-            s = [s]
-            
-        assert isinstance(s, list)
-        assert [-1-tol < exponent < 1+tol for _, exponent in s]
-        
+        assert -1-tol < s < 1+tol
         self.s = s
-        # How to take M into account
-        self.lump = lump
-        self.use_pinv = use_pinv
         
     def create_vec(self, dim=0):
         return self.A.create_vec(dim)
@@ -105,15 +38,23 @@ class InterpolationMatrix(block_base):
         if self.matrix is not None:
             return self.matrix*b
 
-        # We compute it for the first time
-        if self.lmbda is None and self.U is None:
-            info('Computing %d eigenvalues for InterpolationMatrix' % b.size())
-            t = Timer('eigh')
-            # Solve as generalized eigenvalue problem
-            self.lmbda, self.U = my_eigh(self.A.array(), self.Ml.array())
-            info('Done %g' % t.stop())
+        self.collapse()
+        return self.matrix*b
 
-        assert self.use_pinv or all(self.lmbda > 0)  # pos def
+    def collapse(self):
+        '''Compute matrix representation of the operator'''
+        if self.matrix is not None:
+            return self.matrix
+    
+        info('Computing %d eigenvalues for InterpolationMatrix' % self.A.size(0))
+        t = Timer('eigh')
+        # Solve as generalized eigenvalue problem
+        try:
+            self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
+        except:
+            self.lmbda, self.U = eigh(self.A.array(), self.M.array())
+
+        assert np.all(self.lmbda > 0), np.min(np.abs(self.lmbda))  # pos def
 
         M = self.M.array()
         # Build the matrix representation
@@ -123,59 +64,42 @@ class InterpolationMatrix(block_base):
         diag = np.zeros_like(self.lmbda)
 
         # Zero eigenvalue is 1E-12
-        idx = np.abs(self.lmbda) < 1E-12*len(W)
-        self.lmbda[idx] = 1
-        
-        for weight, exponent in self.s:
-            diag = diag + weight*self.lmbda**exponent
+        diag = self.lmbda**self.s
 
         array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
                 
         A = PETSc.Mat().createAIJ(size=array.shape,
-                                      csr=(array.indptr, array.indices, array.data))
+                                  csr=(array.indptr, array.indices, array.data))
         self.matrix = PETScMatrix(A)
 
-        return self.matrix*b
-
+        return self.matrix
+    
     def __pow__(self, power):
-        '''A**-1 computes the inverse w/out recomputiong the eigenvalues'''
+        '''A**-1 computes the inverse w/out recomputiog the eigenvalues'''
         assert isinstance(power, int)
         # NOTE: that we return a PETScMatrix not interpolation norm.
-        # For the returdned object the **-1 is no longer defined - cbc
-        # block allows only positve powers
-        if power == -1:
-            if self.lmbda is None:
-                info('Computing %d eigenvalues for InterpolationMatrix' % self.M.size(0))
-                self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
-                self.lmbda = mask.masked_array(self.lmbda, np.abs(self.lmbda) < 1E-12, fill_value=0.)
+        assert power == -1
+        
+        if self.matrix is None:
+            self.collapse()
                 
-            W = self.U
+        W = self.U
+        diag = self.lmbda**(-1.*self.s)
             
-            diag = np.zeros_like(self.lmbda)
-            for weight, exponent in self.s:
-                diag = diag + weight*self.lmbda**exponent
-            diag = diag**-1.
-            
-            array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T))
-            A = PETSc.Mat().createAIJ(size=array.shape,
-                                  csr=(array.indptr, array.indices, array.data))
-            return PETScMatrix(A)
-        # Fallback to cbc.block
-        else:
-            assert power > 0
-            return block_base.__pow__(self, power)
+        array = csr_matrix((W.dot(np.diag(diag.data))).dot(W.T))
+        A = PETSc.Mat().createAIJ(size=array.shape,
+                                      csr=(array.indptr, array.indices, array.data))
+        return PETScMatrix(A)
 
 
-def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
+def Hs0Eig(V, s, bcs, kappa=Constant(1)):
     '''
-    Interpolation matrix with A based on -Delta and M based on I.
+    Interpolation matrix with A based on -kappa*Delta and M based on kappa*I.
 
     INPUT:
       V = function space instance
       s = float that is the fractionality exponent
-      bcs = DirichletBC instance specifying boundary conditions
-            for DG spaces FacetFunction which marks domain of homog.
-            Dirichlet as 1. Alternatively True means 'on_boundary'
+      bcs = [(facet function, tag)]
 
     OUTPUT:
       InterpolationMatrix
@@ -187,59 +111,52 @@ def Hs0Norm(V, s, bcs, kappa=Constant(1), lump='', use_pinv=False):
     L = inner(zero, v)*dx
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
-        # assert V.ufl_element().degree() == 0
-        # FIXME: kappa \neq 1
         mesh = V.mesh()
         h = CellDiameter(mesh)
         h_avg = avg(h)
         n = FacetNormal(mesh)
 
-        # Some heuristic to get the 
+        # FIXME: heustiristics for SIP
         penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
         penalty *= mesh.topology().dim()
 
         alpha = Constant(penalty)
         gamma = Constant(penalty)
-        # NOTE: weakly include bcs
-        # a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+        # Interior
         a = (kappa*dot(grad(v), grad(u))*dx 
             - kappa*dot(avg(grad(v)), jump(u, n))*dS 
             - kappa*dot(jump(v, n), avg(grad(u)))*dS 
             + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
-        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-        # Whole boundary
-        if isinstance(bcs, bool):
-            bcs and DomainBoundary().mark(facet_f, 1)
-        # Where they want it
-        else:
-            facet_f = bcs
-        dBdry = ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
+        # Exterior
+        for facet_f, tag in bcs:
+            assert facet_f.dim() == mesh.topology().dim() - 1
+
+            dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
             
-        a += (-kappa*dot(grad(v), u*n)*dBdry
-              - kappa*dot(v*n, grad(u))*dBdry
-              + kappa*(gamma/h)*v*u*dBdry)        
-            
+            a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+                  - kappa*dot(v*n, grad(u))*dBdry(tag)
+                  + kappa*(gamma/h)*v*u*dBdry(tag))
+
         A, M = map(assemble, (a, m))
     else:
         a = inner(kappa*grad(u), grad(v))*dx
+        bcs = [DirichletBC(V, zero, facet_f, tag) for facet_f, tag in bcs]
 
         A, _ = assemble_system(a, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s, lump=lump, use_pinv=use_pinv)
+    return InterpolationMatrix(A, M, s)
 
 
-def HsNorm(V, s, bcs=None, kappa=Constant(1), lump='', use_pinv=False):
+def HsEig(V, s, bcs=None, kappa=Constant(1)):
     '''
-    Interpolation matrix with A based on -Delta and M based on I.
+    Interpolation matrix with A based on kappa*(-Delta+I) and M based on kappa*I.
 
     INPUT:
       V = function space instance
       s = float that is the fractionality exponent
-      bcs = DirichletBC instance specifying boundary conditions
-            for DG spaces FacetFunction which marks domain of homog.
-            Dirichlet as 1. Alternatively True means 'on_boundary'
+      bcs = [(facet function, tag)]
 
     OUTPUT:
       InterpolationMatrix
@@ -251,125 +168,41 @@ def HsNorm(V, s, bcs=None, kappa=Constant(1), lump='', use_pinv=False):
     L = inner(zero, v)*dx
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
-        # assert V.ufl_element().degree() == 0
-        # FIXME: kappa \neq 1
         mesh = V.mesh()
         h = CellDiameter(mesh)
         h_avg = avg(h)
         n = FacetNormal(mesh)
-
-        # Some heuristic to get the 
+        # FIXME: these are just heurstic to get the SIP penalty
         penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
         penalty *= mesh.topology().dim()
 
         alpha = Constant(penalty)
         gamma = Constant(penalty)
-        # NOTE: weakly include bcs
-        # a = h_avg**(-1)*dot(jump(v), jump(u))*dS
+
+        # Interior
         a = (kappa*dot(grad(v), grad(u))*dx 
             - kappa*dot(avg(grad(v)), jump(u, n))*dS 
             - kappa*dot(jump(v, n), avg(grad(u)))*dS 
             + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
-        facet_f = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-        # Whole boundary
-        if isinstance(bcs, bool):
-            bcs and DomainBoundary().mark(facet_f, 1)
-        # Where they want it
-        else:
-            facet_f = bcs
-        dBdry = ds(domain=mesh, subdomain_data=facet_f, subdomain_id=1)
+        if bcs is not None:
+            for facet_f, tag in bcs:
+                assert facet_f.dim() == mesh.topology().dim() - 1
+
+                dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
             
-        a += (-kappa*dot(grad(v), u*n)*dBdry
-              - kappa*dot(v*n, grad(u))*dBdry
-              + kappa*(gamma/h)*v*u*dBdry)        
+                a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+                      - kappa*dot(v*n, grad(u))*dBdry(tag)
+                      + kappa*(gamma/h)*v*u*dBdry(tag))
             
         A, M = map(assemble, (a+m, m))
     else:
         a = inner(kappa*grad(u), grad(v))*dx
-
+        # Expend
+        if bcs is not None:
+            bcs = [DirichletBC(V, zero, facet_f, tag) for facet_f, tag in bcs]            
+        
         A, _ = assemble_system(a+m, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s, lump=lump, use_pinv=use_pinv)
-
-
-# Backward compatibility
-wHsNorm = HsNorm
-wHs0Norm = Hs0Norm
-
-
-# --------------------------------------------------------------------
-
-
-if __name__ == '__main__':
-    from dolfin import *
-    import numpy as np
-    import scipy.linalg as spla
-
-    if False:
-        mesh = UnitSquareMesh(16, 16)
-        V = FunctionSpace(mesh, 'CG', 1)
-        x = Function(V).vector()
-
-        y = interpolate(Constant(2), V).vector()
-        A = HsZNorm(V, s=-0.5)
-
-        A = HsNorm(V, s=-0.5)
-        A*x
-
-        AA = HsNorm(V, s=[(1, -0.5), (2, -0.25)])
-        B = AA**-1
-
-        print (x - B*AA*x).norm('l2'), '<<<<'
-
-
-        B = HsNorm(V, s=-0.5, lump='row')
-        B*x
-
-        print(np.linalg.norm(A.matrix.array() - B.matrix.array()))
-
-        print 
-        z = interpolate(Constant(2), V).vector()
-        M = L20Norm(V)
-        print((M*z).norm('l2'))
-
-        x = interpolate(Expression('sin(pi*(x[0]+x[1]))', degree=3), V)
-        mine = x.vector().inner(M*x.vector())
-        true = assemble(inner(x, x)*dx)
-
-        print(abs(mine-true))
-
-
-    import block
-
-    s = -0.123
-    mu = 1E4
-    
-    mesh = UnitIntervalMesh(128)
-
-    V = FunctionSpace(mesh, 'CG', 1)
-    x = Function(V).vector()
-    x.set_local(np.random.rand(x.local_size()))
-    
-    A0 = HsNorm(V, s=s, bcs=None)
-    y0 = mu*A0*x
-
-    A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
-    y = A*x
-
-    print((y - y0).norm('l2'))
-
-    # print (y-y0).get_local()
-
-    V = FunctionSpace(mesh, 'DG', 0)
-    x = Function(V).vector()
-    x.set_local(np.random.rand(x.local_size()))
-    
-    A0 = HsNorm(V, s=s, bcs=None)
-    y0 = mu*A0*x
-
-    A = wHsNorm(V, s=s, bcs=None, kappa=Constant(mu))
-    y = A*x
-
-    print((y - y0).norm('l2') )
+    return InterpolationMatrix(A, M, s)
