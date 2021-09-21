@@ -34,6 +34,7 @@ def my_eigh(A, B):
     
     S = Bnh.dot(A.dot(Bnh))
     lmbda, V = np.linalg.eigh(S)
+    info('\tDone S power %g' % np.min(np.abs(lmbda)))    
     # With transformed eigenvectors
     return lmbda, Bnh.dot(V)
 

@@ -54,7 +54,8 @@ class InterpolationMatrix(block_base):
         except:
             self.lmbda, self.U = eigh(self.A.array(), self.M.array())
 
-        assert np.all(self.lmbda > 0), np.min(np.abs(self.lmbda))  # pos def
+        assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10],
+                                        np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
 
         M = self.M.array()
         # Build the matrix representation
@@ -91,6 +92,84 @@ class InterpolationMatrix(block_base):
                                       csr=(array.indptr, array.indices, array.data))
         return PETScMatrix(A)
 
+    
+def Hs0EigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
+    '''
+    Interpolation matrix with A based on -kappa*Delta and M based on kappa*I.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = [(facet function, tag)]
+
+    OUTPUT:
+      InterpolationMatrix
+    '''
+    u, v = TrialFunction(V), TestFunction(V)
+    m = kappa*inner(u, v)*dx
+
+    zero = Constant(np.zeros(v.ufl_element().value_shape()))
+    L = inner(zero, v)*dx
+    
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+        return Hs0Eig(V, s, bcs, kappa)
+
+    a = inner(kappa*grad(u), grad(v))*dx
+
+    mesh = V.mesh()    
+    n, h = FacetNormal(mesh), FacetArea(mesh)
+    for facet_f, tag in bcs:
+        assert facet_f.dim() == mesh.topology().dim() - 1
+
+        dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
+            
+        a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+              - kappa*dot(v*n, grad(u))*dBdry(tag)
+              + kappa*(gamma/h)*v*u*dBdry(tag))
+
+    A, M = map(assemble, (a, m))
+
+    return InterpolationMatrix(A, M, s)
+
+
+def HsEigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
+    '''
+    Interpolation matrix with A based on -kappa*(Delta+I) and M based on kappa*I.
+
+    INPUT:
+      V = function space instance
+      s = float that is the fractionality exponent
+      bcs = [(facet function, tag)]
+
+    OUTPUT:
+      InterpolationMatrix
+    '''
+    u, v = TrialFunction(V), TestFunction(V)
+    m = kappa*inner(u, v)*dx
+
+    zero = Constant(np.zeros(v.ufl_element().value_shape()))
+    L = inner(zero, v)*dx
+
+    if V.ufl_element().family() == 'Discontinuous Lagrange':
+        return HsEig(V, s, bcs, kappa)
+
+    a = inner(kappa*grad(u), grad(v))*dx + kappa*inner(u, v)*dx
+
+    mesh = V.mesh()
+    n, h = FacetNormal(mesh), FacetArea(mesh)
+    for facet_f, tag in bcs:
+        assert facet_f.dim() == mesh.topology().dim() - 1
+        dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
+
+        a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+              - kappa*dot(v*n, grad(u))*dBdry(tag)
+              + kappa*(100*gamma/h)*v*u*dBdry(tag))
+    print(gamma(0), '<<<<')
+    A, M = map(assemble, (a, m))
+
+    return InterpolationMatrix(A, M, s)
+
+    
 
 def Hs0Eig(V, s, bcs, kappa=Constant(1)):
     '''
