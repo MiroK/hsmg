@@ -1,3 +1,4 @@
+from xii.meshing.cell_centers import CentroidDistance 
 from block.block_base import block_base
 from scipy.sparse import csr_matrix, diags
 from scipy.linalg import eigh
@@ -15,8 +16,11 @@ class InterpolationMatrix(block_base):
     '''
     def __init__(self, A, M, s, tol=1E-10):
         # Verify symmetry
-        assert as_backend_type(A).mat().isHermitian(tol)
-        assert as_backend_type(M).mat().isHermitian(tol)
+        try:
+            assert as_backend_type(A).mat().isHermitian(tol) 
+            assert as_backend_type(M).mat().isHermitian(tol)
+        except AssertionError:
+            print('>>> Proceeding with possibly not symmetric matrix <<<')
         # This is a layzy thing so the operator is not formed until
         # its action is needed
         self.lmbda = None
@@ -25,6 +29,7 @@ class InterpolationMatrix(block_base):
 
         self.A = A
         self.M = M
+        self.V = V
 
         assert -1-tol < s < 1+tol
         self.s = s
@@ -117,19 +122,19 @@ def Hs0EigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
     a = inner(kappa*grad(u), grad(v))*dx
 
     mesh = V.mesh()    
-    n, h = FacetNormal(mesh), FacetArea(mesh)
+    n, h = FacetNormal(mesh), CellDiameter(mesh)
     for facet_f, tag in bcs:
         assert facet_f.dim() == mesh.topology().dim() - 1
 
         dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
             
-        a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
-              - kappa*dot(v*n, grad(u))*dBdry(tag)
+        a += (#-kappa*dot(grad(v), u*n)*dBdry(tag)
+              #- kappa*dot(v*n, grad(u))*dBdry(tag)
               + kappa*(gamma/h)*v*u*dBdry(tag))
 
     A, M = map(assemble, (a, m))
 
-    return InterpolationMatrix(A, M, s)
+    return InterpolationMatrix(A, M, s, V)
 
 
 def HsEigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
@@ -157,17 +162,21 @@ def HsEigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
 
     mesh = V.mesh()
     n, h = FacetNormal(mesh), FacetArea(mesh)
+
+    if mesh.topology().dim() == 2:
+        h = sqrt(h)
+    
     for facet_f, tag in bcs:
         assert facet_f.dim() == mesh.topology().dim() - 1
         dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
 
-        a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
-              - kappa*dot(v*n, grad(u))*dBdry(tag)
-              + kappa*(100*gamma/h)*v*u*dBdry(tag))
+        a += (#-kappa*dot(grad(v), u*n)*dBdry(tag)
+              #- kappa*dot(v*n, grad(u))*dBdry(tag)
+              + kappa*(gamma/h)*v*u*dBdry(tag))
     print(gamma(0), '<<<<')
     A, M = map(assemble, (a, m))
 
-    return InterpolationMatrix(A, M, s)
+    return InterpolationMatrix(A, M, s, V)
 
     
 
@@ -188,24 +197,26 @@ def Hs0Eig(V, s, bcs, kappa=Constant(1)):
 
     zero = Constant(np.zeros(v.ufl_element().value_shape()))
     L = inner(zero, v)*dx
-    
+
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         mesh = V.mesh()
-        h = CellDiameter(mesh)
+
+        h = CentroidDistance(mesh)
         h_avg = avg(h)
         n = FacetNormal(mesh)
 
         # FIXME: heustiristics for SIP
-        penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
+        penalty = {0: 1, 1: 5, 2: 8, 3: 16}[V.ufl_element().degree()]
         penalty *= mesh.topology().dim()
 
         alpha = Constant(penalty)
         gamma = Constant(penalty)
+
         # Interior
         a = (kappa*dot(grad(v), grad(u))*dx 
-            - kappa*dot(avg(grad(v)), jump(u, n))*dS 
-            - kappa*dot(jump(v, n), avg(grad(u)))*dS 
-            + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
+            - dot(avg(kappa*grad(v)), jump(u, n))*dS 
+            - dot(jump(v, n), avg(kappa*grad(u)))*dS 
+            + kappa('+')*kappa('-')/(kappa('+')+kappa('-'))*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         # Exterior
         for facet_f, tag in bcs:
@@ -225,7 +236,7 @@ def Hs0Eig(V, s, bcs, kappa=Constant(1)):
         A, _ = assemble_system(a, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s)
+    return InterpolationMatrix(A, M, s, V)
 
 
 def HsEig(V, s, bcs=None, kappa=Constant(1)):
@@ -248,7 +259,7 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         mesh = V.mesh()
-        h = CellDiameter(mesh)
+        h = CentroidDistance(mesh)
         h_avg = avg(h)
         n = FacetNormal(mesh)
         # FIXME: these are just heurstic to get the SIP penalty
@@ -259,10 +270,11 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
         gamma = Constant(penalty)
 
         # Interior
-        a = (kappa*dot(grad(v), grad(u))*dx 
-            - kappa*dot(avg(grad(v)), jump(u, n))*dS 
-            - kappa*dot(jump(v, n), avg(grad(u)))*dS 
-            + kappa*alpha/h_avg*dot(jump(v), jump(u))*dS)
+        a = (kappa*dot(grad(v), grad(u))*dx
+             # FIXME: For now keep only terms that guarantee SPD
+             #- dot(avg(kappa*grad(v)), jump(u, n))*dS 
+             #- dot(jump(v, n), avg(kappa*grad(u)))*dS 
+             + kappa('+')*kappa('-')/(kappa('+')+kappa('-'))*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         if bcs is not None:
             for facet_f, tag in bcs:
@@ -270,8 +282,8 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
 
                 dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
             
-                a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
-                      - kappa*dot(v*n, grad(u))*dBdry(tag)
+                a += (#-kappa*dot(grad(v), u*n)*dBdry(tag)
+                      #- kappa*dot(v*n, grad(u))*dBdry(tag)
                       + kappa*(gamma/h)*v*u*dBdry(tag))
             
         A, M = map(assemble, (a+m, m))
@@ -284,4 +296,4 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
         A, _ = assemble_system(a+m, L, bcs)
         M, _ = assemble_system(m, L, bcs)
 
-    return InterpolationMatrix(A, M, s)
+    return InterpolationMatrix(A, M, s, V)
