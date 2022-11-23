@@ -14,7 +14,7 @@ class InterpolationMatrix(block_base):
     Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
-    def __init__(self, A, M, s, tol=1E-10):
+    def __init__(self, A, M, s, V, tol=1E-10):
         # Verify symmetry
         try:
             assert as_backend_type(A).mat().isHermitian(tol) 
