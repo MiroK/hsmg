@@ -167,4 +167,4 @@ if __name__ == '__main__':
             y = y.reshape((-1, gdim))
             # Can be permuted
             assert near(norm(x-y), 0) or near(norm(x-y[::-1]), 0), (x, y)
-    print gdim, 'OKAY'
+    print(gdim, 'OKAY')

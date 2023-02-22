@@ -2,7 +2,8 @@ from dolfin import SubDomain, CompiledSubDomain, between, Constant
 from dolfin import DirichletBC, inner, grad, dx, assemble_system
 from dolfin import TrialFunction, TestFunction, MeshFunction
 from dolfin import Vector, Timer
-from dolfin import CellSize, avg, dot, jump, dS, ds
+from dolfin import CellDiameter, avg, dot, jump, dS, ds
+import dolfin as df
 
 from block.object_pool import vec_pool
 from block.block_base import block_base
@@ -10,12 +11,12 @@ from block.block_base import block_base
 from functools import partial
 import numpy as np
 
-import macro_element
-import hs_multigrid
-import hs_amultigrid
-import restriction
-import hierarchy
-import utils
+import hsmg.macro_element
+import hsmg.hs_multigrid
+import hsmg.hs_amultigrid as hs_amultigrid
+import hsmg.restriction
+import hsmg.hierarchy
+import hsmg.utils as utils
 
 
 class HsNormMGBase(block_base):
@@ -108,7 +109,7 @@ class HsNormMGBase(block_base):
 
     @vec_pool
     def create_vec(self, dim=1):
-        return Vector(None, self.size)
+        return Vector(df.MPI.comm_world, self.size)
         
         
 class HsNormMG(HsNormMGBase):
@@ -127,7 +128,7 @@ class HsNormMG(HsNormMGBase):
         if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
-            h = CellSize(V.mesh())
+            h = CellDiameter(V.mesh())
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
@@ -159,7 +160,7 @@ class Hs0NormMG(HsNormMGBase):
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
             
-            h = CellSize(V.mesh())
+            h = CellDiameter(V.mesh())
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds
@@ -191,13 +192,11 @@ class HsNormAMGBase(block_base):
         # implementation of this functionality for 1d meshes
         
         # Same function space for a 
-        V = set(arg.function_space() for arg in a.arguments())
-        assert len(V) == 1
-        V = V.pop()
+        V = [arg.function_space() for arg in a.arguments()].pop()
         # and m
-        assert V in set(arg.function_space() for arg in m.arguments())
+        # assert V in set(arg.function_space() for arg in m.arguments())
         # Limit to scalar valued functions
-        assert V.dolfin_element().value_rank() == 0
+        assert V.ufl_element().value_shape() == ()
 
         # If coarsening could preserve boundary tags bcs by markers could
         # be added
@@ -238,7 +237,7 @@ class HsNormAMGBase(block_base):
         if bcs_V is None:
             bdry_dofs = [[]]
         else:
-            bdry_dofs = [bcs_V.get_boundary_values().keys()]
+            bdry_dofs = [list(bcs_V.get_boundary_values().keys())]
         bdry_dofs.extend([list() for _ in range(len(R))])
         self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params, neg_mg)
         self.size = V.dim()
@@ -254,7 +253,7 @@ class HsNormAMGBase(block_base):
 
     @vec_pool
     def create_vec(self, dim=1):
-        return Vector(None, self.size)
+        return Vector(df.MPI.comm_world, self.size)
         
         
 class HsNormAMG(HsNormAMGBase):
@@ -273,7 +272,7 @@ class HsNormAMG(HsNormAMGBase):
         if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
-            h = CellSize(V.mesh())
+            h = CellDiameter(V.mesh())
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds +\
@@ -302,7 +301,7 @@ class Hs0NormAMG(HsNormAMGBase):
         if V.ufl_element().family() == 'Discontinuous Lagrange':
             # For now keep this with only for piecewise constants
             assert V.ufl_element().degree() == 0
-            h = CellSize(V.mesh())
+            h = CellDiameter(V.mesh())
             h_avg = avg(h)
 
             a = h_avg**(-1)*dot(jump(v), jump(u))*dS + h**(-1)*dot(u, v)*ds

@@ -101,7 +101,7 @@ class BPOperator(block_base):
             nsolves += 1
             
             yl = l*k
-            shift = exp(-2.*yl)  # equation (37) in section 3.3
+            shift = exp(-2.*yl)  # equation (47) in section 3.3
 
             A = self.shifted_operator(shift)
             # Keep track of number of iteration in inner solves
@@ -192,18 +192,18 @@ if __name__ == '__main__':
     s = 0.5
     k = 2.
     
-    if True:
+    if False:
         f = Expression('sin(k*pi*x[0])', k=k, degree=4)
         u_exact = Expression('sin(k*pi*x[0])/pow(pow(k*pi, 2), s)', s=s, k=k, degree=4)
 
         get_bcs = lambda V: DirichletBC(V, Constant(0), 'on_boundary')
-        get_B = lambda V, bcs, s: FLaplace(V, s, bcs)
+        get_B = lambda V, bcs, s: InvFLaplace(V, s, bcs)
     else:
         f = Expression('cos(k*pi*x[0])', k=k, degree=4)
         u_exact = Expression('cos(k*pi*x[0])/pow(pow(k*pi, 2) + 1, s)', s=s, k=k, degree=4)
 
         get_bcs = lambda V: None
-        get_B = lambda V, bcs, s: FHelmholtz(V, s, bcs)    
+        get_B = lambda V, bcs, s: InvFHelmholtz(V, s, bcs)    
     e0 = None
     h0 = None
     for n in [2**i for i in range(2, 7)]: #[2**i for i in range(5, 13)]:
@@ -234,7 +234,7 @@ if __name__ == '__main__':
         h0 = float(h)
         nsolves, niters_per_solve = B.nsolves, float(B.niters)/B.nsolves 
         
-        print '%d | %.2E %.4E %.2f [%d(%.4f)]' % (V.dim(), mesh.hmin(), e0, rate, nsolves, niters_per_solve)
+        print('%d | %.2E %.4E %.2f [%d(%.4f)]' % (V.dim(), mesh.hmin(), e0, rate, nsolves, niters_per_solve))
 
     u_exact = interpolate(u_exact, V)
     u_exact.vector().axpy(-1, df.vector())

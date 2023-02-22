@@ -1,17 +1,16 @@
-from utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
-from macro_element import cell_patch
+from hsmg.utils import transpose_matrix, to_csr_matrix, petsc_serial_matrix
+from hsmg.macro_element import cell_patch
 
 from dolfin import FunctionSpace, Cell, Point, warning, as_backend_type
 from dolfin import MeshFunction, Constant, DirichletBC
 from dolfin import Mesh, cells, Expression, Function
 from dolfin import warning
 
-from itertools import izip
 from petsc4py import PETSc
 import numpy as np
 
 
-def interpolation_mat((Vh, VH)):
+def interpolation_mat(arg):
     '''
     A function basis function \phi_H \in V_H has coefficients given as 
     Lh_k(\phi_H) where Lh_k is the k-th degree of freedom of Vh.
@@ -22,6 +21,8 @@ def interpolation_mat((Vh, VH)):
     # and works without any modifications for vectr/tensor valued elements.
     
     # For this to work I only make sure that function values are the same
+    Vh, VH = arg
+    
     assert Vh.dolfin_element().value_rank() == VH.dolfin_element().value_rank()
     assert Vh.ufl_element().value_shape() == VH.ufl_element().value_shape()
 

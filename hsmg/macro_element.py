@@ -1,7 +1,6 @@
 from dolfin import (Mesh, FunctionSpace, Cell, MeshFunction, DomainBoundary,
                     SubsetIterator)
 from collections import defaultdict
-from itertools import ifilter, imap
 import numpy as np
 import operator
 
@@ -30,7 +29,7 @@ def macro_dofmap(size, space, mesh, bdry_dofs=None):
     # Become aware of the domain boundary is
     f = MeshFunction('size_t', mesh, mesh.topology().dim() - 1, 0)
     DomainBoundary().mark(f, 1)
-    domain_boundary = set(imap(operator.methodcaller('index'), SubsetIterator(f, 1)))
+    domain_boundary = set(map(operator.methodcaller('index'), SubsetIterator(f, 1)))
 
     if bdry_dofs is None:
         if size == 1 and space.ufl_element().family() == 'Lagrange' and space.ufl_element().degree() == 1:
@@ -49,7 +48,7 @@ def macro_dofmap(size, space, mesh, bdry_dofs=None):
             maybe = (macro_element(space, vertex, size, domain_boundary) - bdry_dofs
                      for vertex in range(mesh.num_vertices()))
         # Remove bdry dofs from macro element, only not empy remaing
-        definitely = ifilter(bool, maybe)
+        definitely = filter(bool, maybe)
         return [np.fromiter(elm, dtype=int) for elm in definitely]
 
 

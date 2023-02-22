@@ -95,7 +95,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params, neg_mg):
         def set_smoothers(self):
             '''Method for setting Additive Schwarz smoothers.'''
             self.smoothers = []
-            for k in xrange(self.J):
+            for k in range(self.J):
                 Ak = self.As[k]
                 Mk = self.Ms[k]
 
@@ -224,7 +224,7 @@ def setup(A, M, R, s, bdry_dofs, macro_dofmap, mg_params, neg_mg):
         def set_smoothers(self):
             '''Method for setting Additive Schwarz smoothers.'''
             self.smoothers = []
-            for k in xrange(self.J):
+            for k in range(self.J):
                 Ak = self.As[k]
                 Mk = self.Ms[k]
                 dofmap_patches = self.macro_dms[k]
