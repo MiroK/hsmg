@@ -58,9 +58,9 @@ class InterpolationMatrix(block_base):
             self.lmbda, self.U = my_eigh(self.A.array(), self.M.array())
         except:
             self.lmbda, self.U = eigh(self.A.array(), self.M.array())
-
-        assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10],
-                                        np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
+#         print(self.s, self.lmbda, self.A.array(), self.M.array())
+        assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10], )
+                                        # np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
 
         M = self.M.array()
         # Build the matrix representation
@@ -259,11 +259,11 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         mesh = V.mesh()
-        h = CentroidDistance(mesh)
+        h = CellDiameter(mesh) #CentroidDistance(mesh)
         h_avg = avg(h)
         n = FacetNormal(mesh)
         # FIXME: these are just heurstic to get the SIP penalty
-        penalty = {0: 1, 1: 2, 2: 8, 3: 16}[V.ufl_element().degree()]
+        penalty = {0: 10, 1: 20, 2: 8, 3: 16}[V.ufl_element().degree()]
         penalty *= mesh.topology().dim()
 
         alpha = Constant(penalty)
@@ -272,9 +272,9 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
         # Interior
         a = (kappa*dot(grad(v), grad(u))*dx
              # FIXME: For now keep only terms that guarantee SPD
-             #- dot(avg(kappa*grad(v)), jump(u, n))*dS 
-             #- dot(jump(v, n), avg(kappa*grad(u)))*dS 
-             + kappa('+')*kappa('-')/(kappa('+')+kappa('-'))*alpha/h_avg*dot(jump(v), jump(u))*dS)
+             - dot(avg(kappa*grad(v)), jump(u, n))*dS 
+             - dot(jump(v, n), avg(kappa*grad(u)))*dS 
+             + avg(kappa)*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         if bcs is not None:
             for facet_f, tag in bcs:
@@ -287,6 +287,7 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
                       + kappa*(gamma/h)*v*u*dBdry(tag))
             
         A, M = map(assemble, (a+m, m))
+
     else:
         a = inner(kappa*grad(u), grad(v))*dx
         # Expend

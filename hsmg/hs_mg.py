@@ -311,3 +311,74 @@ class Hs0NormAMG(HsNormAMGBase):
         m = inner(u, v)*dx
 
         HsNormAMGBase.__init__(self, a, m, bdry, s, mg_params, neg_mg)
+
+# ------------
+
+class HsNormAMGBase(block_base):
+    '''
+    Multi grid approximation of fraction H^s norm. The norm is defined
+    in terms of eigenvalue problem: Find u \in V, lambda in \mathbb{R} 
+    such that for all v \in V a(u, v) = m(u, v).
+    '''
+    def __init__(self, a, m, bdry, s, mg_params, neg_mg='bpl'):
+        # The input here is
+        # a, m the bilinear forms
+        # bdry; an instance of SubDomain class which marks the boundaries
+        # s: fraction exponent
+        # mg_prams: a dictionary of multigrid parameters
+        # ------------------------------------------------------------
+        # mesh_hierarchy: this is currently a part of signature because
+        # construction of dolfin's MeshHierarchy by coarsening the mesh
+        # of V does not work. We have a hand-made and rather limited
+        # implementation of this functionality for 1d meshes
+        
+        # Same function space for a 
+        V = [arg.function_space() for arg in a.arguments()].pop()
+        # and m
+        # assert V in set(arg.function_space() for arg in m.arguments())
+        # Limit to scalar valued functions
+        assert V.ufl_element().value_shape() == ()
+
+        # If coarsening could preserve boundary tags bcs by markers could
+        # be added
+        assert bdry is None or isinstance(bdry, (SubDomain, CompiledSubDomain))
+        
+        # Keep s to where we know it works
+        assert between(s, (-1, 1.))
+
+        if bdry is not None:
+            mesh = V.mesh()
+            bdries = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+            bdry.mark(bdries, 1)
+            bcs_V = DirichletBC(V, Constant(0), bdries, 1)
+            if not bcs_V.get_boundary_values(): bcs_V = None
+        else:
+            bcs_V = None
+
+        L = inner(Constant(0), TestFunction(V))*dx
+        A, _ = assemble_system(a, L, bcs_V)
+        M, _ = assemble_system(m, L, bcs_V)
+
+        A, M = map(utils.to_csr_matrix, (A, M))
+
+        # Wishful thinking -- get the hierarchy from pyamg
+        t_amg = Timer('pyAMG')
+        # Based on the stiffness matrix
+        ml = mg_params['pyamg_solver'](A)
+        print('\tSetting up hierarchy took %g s' % t_amg.stop())
+        R = [l.R for l in ml.levels if hasattr(l, 'R')]
+        print('AMG with %d levels' % len(R))
+
+        self.nlevels = len(R)
+        # Macro dofmaps is how we setup the smoother; here we do it
+        # pointwise: NOTE: should we avoid the boundary?
+        macro_dofmaps = [np.arange(A.shape[0]).reshape((-1, 1))]
+        [macro_dofmaps.append(np.arange(Rk.shape[0]).reshape((-1, 1))) for Rk in R]
+
+        if bcs_V is None:
+            bdry_dofs = [[]]
+        else:
+            bdry_dofs = [list(bcs_V.get_boundary_values().keys())]
+        bdry_dofs.extend([list() for _ in range(len(R))])
+        self.mg = hs_amultigrid.setup(A, M, R, s, bdry_dofs, macro_dofmaps, mg_params, neg_mg)
+        self.size = V.dim()
