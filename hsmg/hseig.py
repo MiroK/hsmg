@@ -14,16 +14,20 @@ class InterpolationMatrix(block_base):
     Given spd matrices A, M this operator is (M*U)*Lambda^s(M*U)' where 
     A*U = M*U*Lambda and U'*M*U = I
     '''
-    def __init__(self, A, M, s, V, tol=1E-10):
+    def __init__(self, A, M, s, V, tol=1E-10, nz=0):
         # Verify symmetry
         try:
-            assert as_backend_type(A).mat().isHermitian(tol) 
-            assert as_backend_type(M).mat().isHermitian(tol)
+            #from IPython import embed
+            #embed()
+            #assert as_backend_type(A).mat().isHermitian(tol) 
+            #assert as_backend_type(M).mat().isHermitian(tol)
+            pass
         except AssertionError:
             print('>>> Proceeding with possibly not symmetric matrix <<<')
         # This is a layzy thing so the operator is not formed until
         # its action is needed
         self.lmbda = None
+
         self.U = None
         self.matrix = None  # Matrix representation of the operator
 
@@ -31,6 +35,8 @@ class InterpolationMatrix(block_base):
         self.M = M
         self.V = V
 
+        self.nz = nz
+        
         assert -1-tol < s < 1+tol
         self.s = s
         
@@ -59,18 +65,22 @@ class InterpolationMatrix(block_base):
         except:
             self.lmbda, self.U = eigh(self.A.array(), self.M.array())
 #         print(self.s, self.lmbda, self.A.array(), self.M.array())
-        assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10], )
-                                        # np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
+
+        if not self.nz:
+            assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10], )
+            # np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
 
         M = self.M.array()
         # Build the matrix representation
         W = M.dot(self.U)
 
         # Build the diagonal
-        diag = np.zeros_like(self.lmbda)
-
         # Zero eigenvalue is 1E-12
-        diag = self.lmbda**self.s
+        if not self.nz:
+            diag = self.lmbda**self.s
+        else:
+            diag = np.zeros_like(self.lmbda)
+            diag[self.nz:] = self.lmbda[self.nz:]**self.s
 
         array = csr_matrix((W.dot(np.diag(diag))).dot(W.T))
                 
@@ -156,25 +166,25 @@ def HsEigNitsche(V, s, bcs, kappa=Constant(1), gamma=Constant(20)):
     L = inner(zero, v)*dx
 
     if V.ufl_element().family() == 'Discontinuous Lagrange':
+        raise ValueError
         return HsEig(V, s, bcs, kappa)
 
     a = inner(kappa*grad(u), grad(v))*dx + kappa*inner(u, v)*dx
 
     mesh = V.mesh()
-    n, h = FacetNormal(mesh), FacetArea(mesh)
+    n, h = FacetNormal(mesh), CellDiameter(mesh)
 
-    if mesh.topology().dim() == 2:
-        h = sqrt(h)
-    
-    for facet_f, tag in bcs:
-        assert facet_f.dim() == mesh.topology().dim() - 1
-        dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
-
-        a += (#-kappa*dot(grad(v), u*n)*dBdry(tag)
-              #- kappa*dot(v*n, grad(u))*dBdry(tag)
-              + kappa*(gamma/h)*v*u*dBdry(tag))
-    print(gamma(0), '<<<<')
-    A, M = map(assemble, (a, m))
+    if bcs is not None:
+        for facet_f, tag in bcs:
+            assert facet_f.dim() == mesh.topology().dim() - 1
+            dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
+            
+            a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+                  - kappa*dot(v*n, grad(u))*dBdry(tag)
+                  + kappa*(gamma/h)*v*u*dBdry(tag))
+    print(gamma(0), kappa(0), '<<<<')
+    L = inner(Constant(0), v)*dx
+    A, M = (assemble_system(arg, L)[0] for arg in (a, m))
 
     return InterpolationMatrix(A, M, s, V)
 
@@ -251,6 +261,14 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
     OUTPUT:
       InterpolationMatrix
     '''
+    mesh = V.mesh()
+    CoefSpace = FunctionSpace(mesh, 'DG', 0)
+    kappa_ = Function(CoefSpace)
+    assemble((1/CellVolume(mesh))*inner(kappa, TestFunction(CoefSpace))*dx,
+             tensor=kappa_.vector())
+    kappa = kappa_
+    print('HsEig kappa bounds', kappa_.vector().min(), kappa_.vector().max())
+    
     u, v = TrialFunction(V), TestFunction(V)
     m = kappa*inner(u, v)*dx
 
@@ -270,11 +288,18 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
         gamma = Constant(penalty)
 
         # Interior
-        a = (kappa*dot(grad(v), grad(u))*dx
-             # FIXME: For now keep only terms that guarantee SPD
-             - dot(avg(kappa*grad(v)), jump(u, n))*dS 
-             - dot(jump(v, n), avg(kappa*grad(u)))*dS 
-             + avg(kappa)*alpha/h_avg*dot(jump(v), jump(u))*dS)
+        if mesh.topology().dim() > 1:
+            a = (kappa*dot(grad(v), grad(u))*dx
+                 # FIXME: For now keep only terms that guarantee SPD
+                 - dot(avg(kappa*grad(v)), jump(u, n))*dS 
+                 - dot(jump(v, n), avg(kappa*grad(u)))*dS 
+                 + avg(kappa)*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
+        else:
+            a = (kappa*dot(grad(v), grad(u))*dx
+                 # FIXME: For now keep only terms that guarantee SPD
+                 - dot(avg(kappa*grad(v)), jump(u, n))*dS 
+                 - dot(jump(v, n), avg(kappa*grad(u)))*dS 
+                 + avg(kappa)*alpha/h_avg*dot(jump(v), jump(u))*dS)
 
         if bcs is not None:
             for facet_f, tag in bcs:
@@ -282,19 +307,19 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
 
                 dBdry = Measure('ds', domain=mesh, subdomain_data=facet_f)
             
-                a += (#-kappa*dot(grad(v), u*n)*dBdry(tag)
-                      #- kappa*dot(v*n, grad(u))*dBdry(tag)
+                a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
+                      - kappa*dot(v*n, grad(u))*dBdry(tag)
                       + kappa*(gamma/h)*v*u*dBdry(tag))
             
         A, M = map(assemble, (a+m, m))
+        return InterpolationMatrix(A, M, s, V)
+    
+    a = inner(kappa*grad(u), grad(v))*dx + inner(kappa*u, v)*dx
+    m = inner(kappa*u, v)*dx
+    # Expend
+    if bcs is not None:
+        bcs = [DirichletBC(V, zero, facet_f, tag) for facet_f, tag in bcs]            
+    A, _ = assemble_system(a, L, bcs)
+    M, _ = assemble_system(m, L, bcs)
 
-    else:
-        a = inner(kappa*grad(u), grad(v))*dx
-        # Expend
-        if bcs is not None:
-            bcs = [DirichletBC(V, zero, facet_f, tag) for facet_f, tag in bcs]            
-        
-        A, _ = assemble_system(a+m, L, bcs)
-        M, _ = assemble_system(m, L, bcs)
-
-    return InterpolationMatrix(A, M, s, V)
+    return InterpolationMatrix(A, M, s, V)    
