@@ -67,7 +67,10 @@ class InterpolationMatrix(block_base):
 #         print(self.s, self.lmbda, self.A.array(), self.M.array())
 
         if not self.nz:
-            assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10], )
+            try:
+                assert np.all(self.lmbda > 0), (np.sort(self.lmbda)[:10], )
+            except:
+                self.lmbda[np.where(self.lmbda < 0)] *= -1
             # np.sort(np.linalg.eigvalsh(self.A.array())))  # pos def
 
         M = self.M.array()
@@ -249,7 +252,7 @@ def Hs0Eig(V, s, bcs, kappa=Constant(1)):
     return InterpolationMatrix(A, M, s, V)
 
 
-def HsEig(V, s, bcs=None, kappa=Constant(1)):
+def HsEig(V, s, bcs=None, kappa=Constant(1), scaled=False):
     '''
     Interpolation matrix with A based on kappa*(-Delta+I) and M based on kappa*I.
 
@@ -270,36 +273,62 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
     print('HsEig kappa bounds', kappa_.vector().min(), kappa_.vector().max())
     
     u, v = TrialFunction(V), TestFunction(V)
-    m = kappa*inner(u, v)*dx
 
     zero = Constant(np.zeros(v.ufl_element().value_shape()))
     L = inner(zero, v)*dx
+
+
+    if scaled:
+        diam = max(np.max(mesh.coordinates(), axis=0) - np.min(mesh.coordinates(), axis=0))
+
+        diam = Constant(diam)
+        m = (1/diam**2)*inner(kappa*u, v)*dx        
+    else:
+        m = inner(kappa*u, v)*dx
+
+    tdim = mesh.topology().dim()
+    facet_f = MeshFunction('size_t', mesh, tdim-1, 0)
+    dS = Measure('dS', domain=mesh, subdomain_data=facet_f)
+
+    nbifs = 0
+    # Let's see it there are bifurcations
+    _, f2c = mesh.init(tdim-1, tdim), mesh.topology()(tdim-1, tdim)
+    for facet in facets(mesh):
+        if len(facet.entities(tdim)) > 2:
+            nbifs += 1
+            facet_f[facet] = 1
+    print(f'HsMG with mesh having {nbifs} bifurcations')
+    
     
     if V.ufl_element().family() == 'Discontinuous Lagrange':
         mesh = V.mesh()
-        h = CellDiameter(mesh) #CentroidDistance(mesh)
-        h_avg = avg(h)
+        hK = CellDiameter(mesh) #CentroidDistance(mesh)
+
         n = FacetNormal(mesh)
         # FIXME: these are just heurstic to get the SIP penalty
-        penalty = {0: 10, 1: 20, 2: 8, 3: 16}[V.ufl_element().degree()]
+        penalty = 4*(1+V.ufl_element().degree())
         penalty *= mesh.topology().dim()
 
         alpha = Constant(penalty)
         gamma = Constant(penalty)
 
         # Interior
-        if mesh.topology().dim() > 1:
-            a = (kappa*dot(grad(v), grad(u))*dx
-                 # FIXME: For now keep only terms that guarantee SPD
-                 - dot(avg(kappa*grad(v)), jump(u, n))*dS 
-                 - dot(jump(v, n), avg(kappa*grad(u)))*dS 
-                 + avg(kappa)*alpha/h_avg*dot(jump(v, n), jump(u, n))*dS)
-        else:
-            a = (kappa*dot(grad(v), grad(u))*dx
-                 # FIXME: For now keep only terms that guarantee SPD
-                 - dot(avg(kappa*grad(v)), jump(u, n))*dS 
-                 - dot(jump(v, n), avg(kappa*grad(u)))*dS 
-                 + avg(kappa)*alpha/h_avg*dot(jump(v), jump(u))*dS)
+        a = inner(kappa*grad(u), grad(v))*dx
+
+        kappa_ = Constant(2)*(kappa('+')*kappa('-'))/(kappa('+') + kappa('-'))
+
+        # NOTE: we do not rely on n('+') = -n('-') because of curved surfaces
+        a += (
+           - kappa_*inner(Constant(0.5)*(dot(grad(u('+')), n('+')) - dot(grad(u('-')), n('-'))), jump(v))*dS(0)
+           - kappa_*inner(Constant(0.5)*(dot(grad(v('+')), n('+')) - dot(grad(v('-')), n('-'))), jump(u))*dS(0)
+           + kappa_*(gamma/avg(hK))*inner(jump(u), jump(v))*dS(0)
+        )
+
+        #a += (
+        #    - dot(avg(kappa*grad(v)), jump(u, n))*dS 
+        #    - dot(jump(v, n), avg(kappa*grad(u)))*dS 
+        #    + kappa('+')*kappa('-')/(kappa('+')+kappa('-'))*alpha/avg(hK)*dot(jump(v), jump(u))*dS
+        #)        
 
         if bcs is not None:
             for facet_f, tag in bcs:
@@ -309,13 +338,23 @@ def HsEig(V, s, bcs=None, kappa=Constant(1)):
             
                 a += (-kappa*dot(grad(v), u*n)*dBdry(tag)
                       - kappa*dot(v*n, grad(u))*dBdry(tag)
-                      + kappa*(gamma/h)*v*u*dBdry(tag))
-            
+                      + kappa*(gamma/hK)*v*u*dBdry(tag))
+
         A, M = map(assemble, (a+m, m))
+
+        if nbifs > 0:
+            from imdg.bifurcation_sip import interior_interface_matrix
+            from imdg.utils import  csr_to_petsc
+            
+            Pcsr = interior_interface_matrix(V, gamma, sip_e=1, which_interior_facets='bifurcations')
+            P = csr_to_petsc(Pcsr)
+            # The final system is
+            as_backend_type(A).mat().axpy(1.0, P)
+
         return InterpolationMatrix(A, M, s, V)
     
-    a = inner(kappa*grad(u), grad(v))*dx + inner(kappa*u, v)*dx
-    m = inner(kappa*u, v)*dx
+    a = inner(kappa*grad(u), grad(v))*dx + m
+
     # Expend
     if bcs is not None:
         bcs = [DirichletBC(V, zero, facet_f, tag) for facet_f, tag in bcs]            
